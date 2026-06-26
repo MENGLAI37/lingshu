@@ -1,0 +1,260 @@
+# Default values for ops-ai.
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+# replicaCount - Number of replicas for the StatefulSet
+replicaCount: 3
+
+image:
+  repository: ghcr.io/lingshu/ops-ai-agent
+  pullPolicy: IfNotPresent
+  # Overrides the image tag whose default is the chart appVersion.
+  tag: ""
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+# Service account configuration
+serviceAccount:
+  # Specifies whether a service account should be created
+  create: true
+  # Annotations to add to the service account
+  annotations: {}
+  # The name of the service account to use.
+  # If not set and create is true, a name is generated using the fullname template
+  name: ""
+
+# StatefulSet configuration
+statefulset:
+  serviceName: ops-ai-agent
+  podManagementPolicy: OrderedReady
+  updateStrategy:
+    type: RollingUpdate
+
+# Pod security context
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  fsGroup: 1000
+  seccompProfile:
+    type: RuntimeDefault
+
+# Container security context
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+      - ALL
+
+# Service configuration
+service:
+  type: ClusterIP
+  ports:
+    http: 8080
+    metrics: 9090
+    sentinel: 26379
+  annotations: {}
+
+# Ingress configuration
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+    # kubernetes.io/ingress.class: nginx
+    # kubernetes.io/tls-acme: "true"
+  hosts:
+    - host: ops-ai.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+  #  - secretName: ops-ai-tls
+  #    hosts:
+  #      - ops-ai.local
+
+# Resources configuration
+resources:
+  limits:
+    cpu: 4000m
+    memory: 8Gi
+  requests:
+    cpu: 2000m
+    memory: 4Gi
+
+# Autoscaling configuration (HPA)
+autoscaling:
+  enabled: false
+  minReplicas: 3
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
+
+# Node selection
+nodeSelector: {}
+
+# Tolerations
+tolerations: []
+
+# Affinity
+affinity:
+  podAntiAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        podAffinityTerm:
+          labelSelector:
+            matchExpressions:
+              - key: app
+                operator: In
+                values:
+                  - ops-ai-agent
+          topologyKey: kubernetes.io/hostname
+
+# Persistence configuration
+persistence:
+  enabled: true
+  storageClass: ""
+  accessMode: ReadWriteOnce
+  size: 10Gi
+  annotations: {}
+
+# Database configuration
+database:
+  type: postgres
+  host: ""
+  port: 5432
+  name: opsai
+  user: opsai
+  password: ""
+  sslmode: require
+  existingSecret: ""
+  secretKeys:
+    password: postgresql-password
+  maxOpenConns: 20
+  maxIdleConns: 5
+
+# Redis configuration
+redis:
+  mode: single
+  host: ""
+  port: 6379
+  password: ""
+  existingSecret: ""
+  secretKeys:
+    password: redis-password
+  database: 0
+  poolSize: 10
+  minIdleConns: 3
+  sentinel:
+    enabled: false
+    masterName: mymaster
+  cluster:
+    enabled: false
+
+# LLM configuration
+llm:
+  providers:
+    - name: openai
+      apiKey: ""
+      baseURL: https://api.openai.com/v1
+      model: gpt-4o
+      priority: 1
+      local: false
+    - name: ollama
+      baseURL: http://localhost:11434
+      model: qwen2.5-coder:7b
+      priority: 99
+      local: true
+  budget:
+    sessionTokenLimit: 100000
+    sessionCostLimitMilli: 5000
+    monthlyTeamLimitMilli: 5000000
+
+# Security configuration
+security:
+  inputSanitization:
+    enabled: true
+  trustManagement:
+    defaultLevel: L0
+    shadowModeThreshold: 0.90
+    minShadowExecutions: 100
+  circuitBreaker:
+    failureThreshold: 3
+    cooldownPeriod: 1h
+  pause:
+    maxQueuedAlerts: 1000
+    defaultExpiresAfter: 6h
+
+# Remediation configuration
+remediation:
+  idempotencyWindow: 30m
+  effectVerificationWindow: 10m
+  maxConcurrentRemediations: 5
+  alertStormProtection:
+    maxPerMinute: 5
+    maxCostPerStormMilli: 10000
+
+# Observability configuration
+observability:
+  metrics:
+    enabled: true
+    port: 9090
+  tracing:
+    enabled: false
+    jaegerEndpoint: http://jaeger-collector:14268/api/traces
+    samplingRate: 0.1
+  logging:
+    level: info
+    format: json
+
+# Health check configuration
+livenessProbe:
+  httpGet:
+    path: /health
+    port: http
+  initialDelaySeconds: 30
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 3
+
+readinessProbe:
+  httpGet:
+    path: /health
+    port: http
+  initialDelaySeconds: 10
+  periodSeconds: 5
+  timeoutSeconds: 3
+  failureThreshold: 3
+
+# Startup probe for slow starting pods
+startupProbe:
+  httpGet:
+    path: /health
+    port: http
+  initialDelaySeconds: 0
+  periodSeconds: 5
+  timeoutSeconds: 3
+  failureThreshold: 30
+
+# Volume mounts
+volumeMounts: []
+
+# Volumes
+volumes: []
+
+# Pod annotations
+podAnnotations: {}
+
+# Pod labels
+podLabels: {}
+
+# Deployment labels
+deploymentLabels: {}
+
+# Service labels
+serviceLabels: {}
+
+# Ingress labels
+ingressLabels: {}

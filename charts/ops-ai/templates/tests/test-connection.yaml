@@ -1,0 +1,32 @@
+{{/*
+Test connection to the ops-ai service
+*/}}
+apiVersion: v1
+kind: Pod
+metadata:
+  name: "{{ include "ops-ai.fullname" . }}-test-connection"
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "ops-ai.labels" . | nindent 4 }}
+    helm.sh/hook: test
+  annotations:
+    helm.sh/hook: test
+spec:
+  containers:
+    - name: wget
+      image: busybox:1.36
+      command:
+        - sh
+        - -c
+        - |
+          echo "Testing connection to ops-ai service..."
+          wget -q --spider --timeout=5 http://{{ include "ops-ai.fullname" . }}:{{ .Values.service.ports.http }}/health
+          exit_code=$?
+          if [ $exit_code -eq 0 ]; then
+            echo "SUCCESS: ops-ai service is reachable"
+            exit 0
+          else
+            echo "FAILED: ops-ai service is not reachable"
+            exit 1
+          fi
+  restartPolicy: Never

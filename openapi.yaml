@@ -1,0 +1,1497 @@
+openapi: 3.0.3
+info:
+  title: ops-ai Agent API
+  description: |
+    运维 AI Agent (ops-ai) REST API 规范。
+
+    ## 认证
+    - Bearer Token (OIDC JWT): `Authorization: Bearer <jwt>`
+    - API Key (CI/CD 场景): `X-API-Key: <key>`
+
+    ## 统一响应格式
+    ```json
+    {
+      "code": 0,
+      "message": "success",
+      "data": {},
+      "request_id": "uuid"
+    }
+    ```
+
+    ## 幂等性
+    写操作通过 `Idempotency-Key` Header 保障。
+  version: 2.3.0
+  contact:
+    name: LingShu Team
+    email: team@lingshu.example.com
+  license:
+    name: Apache-2.0
+    url: https://www.apache.org/licenses/LICENSE-2.0
+
+servers:
+  - url: http://localhost:8080
+    description: 本地开发服务器
+  - url: https://api.ops-ai.example.com
+    description: 生产环境
+
+security:
+  - bearerAuth: []
+  - apiKeyAuth: []
+
+tags:
+  - name: sessions
+    description: 会话管理
+  - name: chat
+    description: 对话与推理
+  - name: alerts
+    description: 告警与修复
+  - name: changesets
+    description: ChangeSet 原子操作
+  - name: pauses
+    description: 全局暂停
+  - name: audit
+    description: 审计与证据链
+  - name: incidents
+    description: 事件管理
+  - name: trust-levels
+    description: 信任等级与影子模式
+  - name: config
+    description: 配置与管理
+  - name: health
+    description: 健康检查
+
+paths:
+  # ===========================================================================
+  # Sessions
+  # ===========================================================================
+  /api/v2/sessions:
+    post:
+      tags:
+        - sessions
+      summary: 创建会话
+      description: 创建一个新的 AI 运维会话
+      operationId: createSession
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateSessionRequest'
+      responses:
+        '200':
+          description: 会话创建成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateSessionResponse'
+        '403':
+          description: Namespace 被 ACL 拒绝
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: 403001
+                message: namespace denied by ACL
+        '401':
+          description: 认证失败
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v2/sessions/{session_id}:
+    get:
+      tags:
+        - sessions
+      summary: 获取会话详情
+      operationId: getSession
+      parameters:
+        - name: session_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionResponse'
+        '404':
+          description: 会话不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v2/sessions/{session_id}/export:
+    post:
+      tags:
+        - sessions
+      summary: 导出会话
+      operationId: exportSession
+      parameters:
+        - name: session_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ExportSessionRequest'
+      responses:
+        '200':
+          description: 导出会话成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExportSessionResponse'
+
+  /api/v2/sessions/import:
+    post:
+      tags:
+        - sessions
+      summary: 导入会话
+      operationId: importSession
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ImportSessionRequest'
+      responses:
+        '200':
+          description: 导入会话成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ImportSessionResponse'
+
+  # ===========================================================================
+  # Chat
+  # ===========================================================================
+  /api/v2/sessions/{session_id}/chat:
+    post:
+      tags:
+        - chat
+      summary: 发送消息（流式）
+      operationId: sendChatMessage
+      parameters:
+        - name: session_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChatRequest'
+      responses:
+        '200':
+          description: 流式响应
+          content:
+            text/event-stream:
+              schema:
+                $ref: '#/components/schemas/ChatStreamEvent'
+        '400':
+          description: 输入包含 Prompt Injection 模式
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: 400001
+                message: potential prompt injection pattern
+        '402':
+          description: Token 预算超限
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: 402001
+                message: token budget exceeded
+
+  /api/v2/sessions/{session_id}/confirm:
+    post:
+      tags:
+        - chat
+      summary: 工具调用确认（L2+ 操作）
+      operationId: confirmToolCall
+      parameters:
+        - name: session_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConfirmRequest'
+      responses:
+        '200':
+          description: 确认成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConfirmResponse'
+        '403':
+          description: 信任等级不足
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: 403002
+                message: insufficient trust level for L3 operation
+
+  # ===========================================================================
+  # Alerts
+  # ===========================================================================
+  /api/v2/alerts/webhook:
+    post:
+      tags:
+        - alerts
+      summary: 接收告警 Webhook
+      operationId: receiveAlertWebhook
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AlertWebhookPayload'
+      responses:
+        '200':
+          description: 告警接收成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AlertWebhookResponse'
+        '202':
+          description: 全局暂停中
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AlertWebhookResponse'
+              example:
+                code: 0
+                data:
+                  remediation_status: deferred: global pause active
+        '503':
+          description: 告警队列已满
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: 503001
+                message: alert queue full (max 1000)
+
+  /api/v2/alerts:
+    get:
+      tags:
+        - alerts
+      summary: 获取告警列表
+      operationId: listAlerts
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [firing, resolved, silenced, ignored]
+        - name: severity
+          in: query
+          schema:
+            type: string
+            enum: [critical, warning, info]
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AlertListResponse'
+
+  /api/v2/alerts/{alert_id}/remediate:
+    post:
+      tags:
+        - alerts
+      summary: 手动触发修复
+      operationId: remediateAlert
+      parameters:
+        - name: alert_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: Idempotency-Key
+          in: header
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RemediateRequest'
+      responses:
+        '200':
+          description: 修复触发成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RemediateResponse'
+        '409':
+          description: 修复已在进行中
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: 409001
+                message: remediation already in progress
+
+  # ===========================================================================
+  # ChangeSets
+  # ===========================================================================
+  /api/v2/changesets:
+    post:
+      tags:
+        - changesets
+      summary: 创建 ChangeSet
+      operationId: createChangeSet
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateChangeSetRequest'
+      responses:
+        '200':
+          description: 创建成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChangeSetResponse'
+
+  /api/v2/changesets/{changeset_id}/execute:
+    post:
+      tags:
+        - changesets
+      summary: 执行 ChangeSet
+      operationId: executeChangeSet
+      parameters:
+        - name: changeset_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ExecuteChangeSetRequest'
+      responses:
+        '200':
+          description: 执行成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExecuteChangeSetResponse'
+        '409':
+          description: ChangeSet 已在执行
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: 部分失败已回滚
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v2/changesets/{changeset_id}/rollback:
+    post:
+      tags:
+        - changesets
+      summary: 回滚 ChangeSet
+      operationId: rollbackChangeSet
+      parameters:
+        - name: changeset_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: 回滚成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RollbackResponse'
+
+  # ===========================================================================
+  # Pauses
+  # ===========================================================================
+  /api/v2/pauses:
+    post:
+      tags:
+        - pauses
+      summary: 创建暂停
+      operationId: createPause
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreatePauseRequest'
+      responses:
+        '200':
+          description: 创建成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PauseResponse'
+        '403':
+          description: 权限不足
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    get:
+      tags:
+        - pauses
+      summary: 获取活跃暂停列表
+      operationId: listPauses
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            default: active
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PauseListResponse'
+
+  /api/v2/pauses/{pause_id}/release:
+    post:
+      tags:
+        - pauses
+      summary: 解除暂停
+      operationId: releasePause
+      parameters:
+        - name: pause_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReleasePauseRequest'
+      responses:
+        '200':
+          description: 解除成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReleasePauseResponse'
+
+  # ===========================================================================
+  # Audit
+  # ===========================================================================
+  /api/v2/audit/events:
+    get:
+      tags:
+        - audit
+      summary: 查询审计事件
+      operationId: listAuditEvents
+      parameters:
+        - name: session_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: cluster
+          in: query
+          schema:
+            type: string
+        - name: namespace
+          in: query
+          schema:
+            type: string
+        - name: risk_level
+          in: query
+          schema:
+            type: string
+            enum: [L0, L1, L2, L3, L4]
+        - name: from
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: to
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuditEventListResponse'
+
+  /api/v2/audit/events/{event_id}/evidence:
+    get:
+      tags:
+        - audit
+      summary: 获取证据链详情
+      operationId: getEvidenceChain
+      parameters:
+        - name: event_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EvidenceChainResponse'
+
+  /api/v2/audit/verify:
+    post:
+      tags:
+        - audit
+      summary: 验证证据链完整性
+      operationId: verifyEvidenceChain
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VerifyEvidenceRequest'
+      responses:
+        '200':
+          description: 验证成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VerifyEvidenceResponse'
+        '400':
+          description: 验证失败
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VerifyEvidenceResponse'
+
+  # ===========================================================================
+  # Incidents
+  # ===========================================================================
+  /api/v2/incidents:
+    post:
+      tags:
+        - incidents
+      summary: 创建事件
+      operationId: createIncident
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateIncidentRequest'
+      responses:
+        '200':
+          description: 创建成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IncidentResponse'
+
+  /api/v2/incidents/{incident_id}:
+    patch:
+      tags:
+        - incidents
+      summary: 更新事件状态
+      operationId: updateIncident
+      parameters:
+        - name: incident_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateIncidentRequest'
+      responses:
+        '200':
+          description: 更新成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IncidentResponse'
+
+  # ===========================================================================
+  # Trust Levels
+  # ===========================================================================
+  /api/v2/trust-levels:
+    get:
+      tags:
+        - trust-levels
+      summary: 获取信任等级
+      operationId: getTrustLevels
+      parameters:
+        - name: cluster
+          in: query
+          schema:
+            type: string
+        - name: namespace
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TrustLevelResponse'
+
+  /api/v2/trust-levels/{trust_id}/upgrade:
+    post:
+      tags:
+        - trust-levels
+      summary: 申请升级信任等级
+      operationId: upgradeTrustLevel
+      parameters:
+        - name: trust_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpgradeTrustLevelRequest'
+      responses:
+        '200':
+          description: 升级成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TrustLevelResponse'
+        '403':
+          description: 指标未达标
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # ===========================================================================
+  # Config & Health
+  # ===========================================================================
+  /api/v2/config:
+    get:
+      tags:
+        - config
+      summary: 获取 Agent 配置
+      operationId: getConfig
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConfigResponse'
+
+    patch:
+      tags:
+        - config
+      summary: 更新 Agent 配置
+      operationId: updateConfig
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateConfigRequest'
+      responses:
+        '200':
+          description: 更新成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UpdateConfigResponse'
+        '400':
+          description: Schema 版本不匹配
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v2/health:
+    get:
+      tags:
+        - health
+      summary: 健康检查
+      operationId: healthCheck
+      responses:
+        '200':
+          description: 健康
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+        '503':
+          description: 降级运行
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+
+  /api/v2/metrics:
+    get:
+      tags:
+        - health
+      summary: Prometheus 指标
+      operationId: getMetrics
+      responses:
+        '200':
+          description: Prometheus Exposition Format
+          content:
+            text/plain:
+              schema:
+                type: string
+
+# =============================================================================
+# Components
+# =============================================================================
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: OIDC JWT Token
+    apiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: CI/CD 场景使用的 API Key
+
+  schemas:
+    # Common
+    BaseResponse:
+      type: object
+      properties:
+        code:
+          type: integer
+          example: 0
+        message:
+          type: string
+          example: success
+        request_id:
+          type: string
+          format: uuid
+
+    ErrorResponse:
+      type: object
+      properties:
+        code:
+          type: integer
+          example: 400001
+        message:
+          type: string
+          example: error message
+        request_id:
+          type: string
+          format: uuid
+
+    # Session
+    CreateSessionRequest:
+      type: object
+      required:
+        - cluster
+        - namespace
+      properties:
+        cluster:
+          type: string
+          example: prod-cluster-1
+        namespace:
+          type: string
+          example: default
+        environment:
+          type: string
+          default: production
+          enum: [production, staging, development]
+
+    CreateSessionResponse:
+      allOf:
+        - $ref: '#/components/schemas/BaseResponse'
+        - type: object
+          properties:
+            data:
+              type: object
+              properties:
+                session_id:
+                  type: string
+                  format: uuid
+                status:
+                  type: string
+                  example: active
+
+    SessionResponse:
+      allOf:
+        - $ref: '#/components/schemas/BaseResponse'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/Session'
+
+    Session:
+      type: object
+      properties:
+        session_id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [active, crashed, completed, exported, imported]
+        conversation_history:
+          type: array
+          items:
+            type: object
+        snapshots:
+          type: array
+          items:
+            type: object
+
+    ExportSessionRequest:
+      type: object
+      properties:
+        include_snapshots:
+          type: boolean
+          default: true
+
+    ExportSessionResponse:
+      allOf:
+        - $ref: '#/components/schemas/BaseResponse'
+        - type: object
+          properties:
+            data:
+              type: object
+              properties:
+                export_url:
+                  type: string
+                  example: s3://...
+
+    ImportSessionRequest:
+      type: object
+      properties:
+        import_source:
+          type: string
+          example: s3://...
+
+    ImportSessionResponse:
+      allOf:
+        - $ref: '#/components/schemas/BaseResponse'
+        - type: object
+          properties:
+            data:
+              type: object
+              properties:
+                session_id:
+                  type: string
+                  format: uuid
+
+    # Chat
+    ChatRequest:
+      type: object
+      required:
+        - message
+      properties:
+        message:
+          type: string
+          example: 排查 nginx Pod 重启原因
+        streaming:
+          type: boolean
+          default: true
+
+    ChatStreamEvent:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [thinking, tool_call, result]
+        content:
+          type: string
+        audit_event_id:
+          type: integer
+
+    ConfirmRequest:
+      type: object
+      required:
+        - pending_tool_call_id
+        - decision
+      properties:
+        pending_tool_call_id:
+          type: string
+          format: uuid
+        decision:
+          type: string
+          enum: [approve, reject]
+
+    ConfirmResponse:
+      allOf:
+        - $ref: '#/components/schemas/BaseResponse'
+        - type: object
+          properties:
+            data:
+              type: object
+              properties:
+                execution_result:
+                  type: object
+                audit_event_id:
+                  type: integer
+
+    # Alerts
+    AlertWebhookPayload:
+      type: object
+      additionalProperties: true
+
+    AlertWebhookResponse:
+      allOf:
+        - $ref: '#/components/schemas/BaseResponse'
+        - type: object
+          properties:
+            data:
+              type: object
+              properties:
+                alert_id:
+                  type: string
+                  format: uuid
+                remediation_status:
+                  type: string
+                  example: pending
+
+    AlertListResponse:
+      allOf:
+        - $ref: '#/components/schemas/BaseResponse'
+        - type: object
+          properties:
+            data:
+              type: object
+              properties:
+                items:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/Alert'
+                total:
+                  type: integer
+
+    Alert:
+      type: object
+      properties:
+        alert_id:
+          type: string
+          format: uuid
+        source:
+          type: string
+        alertname:
+          type: string
+        severity:
+          type: string
+        status:
+          type: string
+        cluster:
+          type: string
+        namespace:
+          type: string
+        fired_at:
+          type: string
+          format: date-time
+
+    RemediateRequest:
+      type: object
+      properties:
+        strategy:
+          type: string
+          enum: [auto, manual]
+          default: auto
+        dry_run:
+          type: boolean
+          default: false
+
+    RemediateResponse:
+      allOf:
+        - $ref: '#/components/schemas/BaseResponse'
+        - type: object
+          properties:
+            data:
+              type: object
+              properties:
+                remediation_id:
+                  type: string
+                  format: uuid
+                status:
+                  type: string
+
+    # ChangeSets
+    CreateChangeSetRequest:
+      type: object
+      required:
+        - session_id
+        - resources
+      properties:
+        session_id:
+          type: string
+          format: uuid
+        resources:
+          type: array
+          items:
+            $ref: '#/components/schemas/ChangeSetResource'
+        dry_run:
+          type: boolean
+          default: false
+
+    ChangeSetResource:
+      type: object
+      required:
+        - type
+        - name
+        - action
+      properties:
+        type:
+          type: string
+          example: Deployment
+        name:
+          type: string
+        namespace:
+          type: string
+        action:
+          type: string
+          enum: [apply, patch, scale, delete, create]
+        input:
+          type: object
+          example:
+            replicas: 5
+
+    ChangeSetResponse:
+      allOf:
+        - $ref: '#/components/schemas/BaseResponse'
+        - type: object
+          properties:
+            data:
+              type: object
+              properties:
+                changeset_id:
+                  type: string
+                  format: uuid
+                status:
+                  type: string
+
+    ExecuteChangeSetRequest:
+      type: object
+      properties:
+        confirm:
+          type: boolean
+          default: true
+        timeout_seconds:
+          type: integer
+          default: 300
+
+    ExecuteChangeSetResponse:
+      allOf:
+        - $ref: '#/components/schemas/BaseResponse'
+        - type: object
+          properties:
+            data:
+              type: object
+              properties:
+                status:
+                  type: string
+
+    RollbackResponse:
+      allOf:
+        - $ref: '#/components/schemas/BaseResponse'
+        - type: object
+          properties:
+            data:
+              type: object
+              properties:
+                status:
+                  type: string
+
+    # Pauses
+    CreatePauseRequest:
+      type: object
+      required:
+        - level
+        - scope
+        - reason
+      properties:
+        level:
+          type: string
+          enum: [global, cluster, namespace, operation]
+        scope:
+          type: string
+          example: production
+        reason:
+          type: string
+        expires_at:
+          type: string
+          format: date-time
+
+    PauseResponse:
+      allOf:
+        - $ref: '#/components/schemas/BaseResponse'
+        - type: object
+          properties:
+            data:
+              type: object
+              properties:
+                pause_id:
+                  type: string
+                  format: uuid
+                status:
+                  type: string
+
+    PauseListResponse:
+      allOf:
+        - $ref: '#/components/schemas/BaseResponse'
+        - type: object
+          properties:
+            data:
+              type: object
+              properties:
+                items:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/Pause'
+
+    Pause:
+      type: object
+      properties:
+        pause_id:
+          type: string
+          format: uuid
+        level:
+          type: string
+        scope:
+          type: string
+        status:
+          type: string
+        reason:
+          type: string
+
+    ReleasePauseRequest:
+      type: object
+      properties:
+        reason:
+          type: string
+
+    ReleasePauseResponse:
+      allOf:
+        - $ref: '#/components/schemas/BaseResponse'
+        - type: object
+          properties:
+            data:
+              type: object
+              properties:
+                status:
+                  type: string
+                queued_alerts_processed:
+                  type: integer
+
+    # Audit
+    AuditEventListResponse:
+      allOf:
+        - $ref: '#/components/schemas/BaseResponse'
+        - type: object
+          properties:
+            data:
+              type: object
+              properties:
+                items:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/AuditEvent'
+                total:
+                  type: integer
+
+    AuditEvent:
+      type: object
+      properties:
+        event_id:
+          type: integer
+        risk_level:
+          type: string
+        evidence_chain_hash:
+          type: string
+        action:
+          type: string
+        tool_name:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+
+    EvidenceChainResponse:
+      allOf:
+        - $ref: '#/components/schemas/BaseResponse'
+        - type: object
+          properties:
+            data:
+              type: object
+              properties:
+                event_id:
+                  type: integer
+                evidence_chain:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/Evidence'
+                integrity_verified:
+                  type: boolean
+
+    Evidence:
+      type: object
+      properties:
+        evidence_id:
+          type: integer
+        evidence_type:
+          type: string
+        content:
+          type: object
+        content_hash:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+
+    VerifyEvidenceRequest:
+      type: object
+      required:
+        - event_id
+      properties:
+        event_id:
+          type: integer
+        expected_hash:
+          type: string
+
+    VerifyEvidenceResponse:
+      allOf:
+        - $ref: '#/components/schemas/BaseResponse'
+        - type: object
+          properties:
+            data:
+              type: object
+              properties:
+                verified:
+                  type: boolean
+                chain_length:
+                  type: integer
+                broken_at:
+                  type: integer
+
+    # Incidents
+    CreateIncidentRequest:
+      type: object
+      required:
+        - severity
+      properties:
+        severity:
+          type: string
+          enum: [P0, P1, P2, P3, P4]
+        title:
+          type: string
+        session_id:
+          type: string
+          format: uuid
+        auto_create_war_room:
+          type: boolean
+          default: false
+
+    IncidentResponse:
+      allOf:
+        - $ref: '#/components/schemas/BaseResponse'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/Incident'
+
+    Incident:
+      type: object
+      properties:
+        incident_id:
+          type: string
+          format: uuid
+        severity:
+          type: string
+        status:
+          type: string
+        title:
+          type: string
+        war_room_url:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+
+    UpdateIncidentRequest:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [open, mitigated, resolved, closed]
+        root_cause:
+          type: string
+
+    # Trust Levels
+    TrustLevelResponse:
+      allOf:
+        - $ref: '#/components/schemas/BaseResponse'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/TrustLevel'
+
+    TrustLevel:
+      type: object
+      properties:
+        trust_id:
+          type: string
+          format: uuid
+        current_level:
+          type: string
+        shadow_success_rate:
+          type: number
+          format: float
+        shadow_executions:
+          type: integer
+        shadow_successes:
+          type: integer
+
+    UpgradeTrustLevelRequest:
+      type: object
+      required:
+        - target_level
+      properties:
+        target_level:
+          type: string
+        justification:
+          type: string
+
+    # Config
+    ConfigResponse:
+      allOf:
+        - $ref: '#/components/schemas/BaseResponse'
+        - type: object
+          properties:
+            data:
+              type: object
+              properties:
+                schema_version:
+                  type: string
+                remediation:
+                  type: object
+
+    UpdateConfigRequest:
+      type: object
+      properties:
+        schema_version:
+          type: string
+        remediation:
+          type: object
+
+    UpdateConfigResponse:
+      allOf:
+        - $ref: '#/components/schemas/BaseResponse'
+        - type: object
+          properties:
+            data:
+              type: object
+              properties:
+                applied:
+                  type: boolean
+
+    # Health
+    HealthResponse:
+      allOf:
+        - $ref: '#/components/schemas/BaseResponse'
+        - type: object
+          properties:
+            data:
+              type: object
+              properties:
+                status:
+                  type: string
+                  enum: [healthy, degraded]
+                role:
+                  type: string
+                  example: Leader
+                checks:
+                  type: object
+                  additionalProperties:
+                    type: object
+                    properties:
+                      status:
+                        type: string
+                      message:
+                        type: string

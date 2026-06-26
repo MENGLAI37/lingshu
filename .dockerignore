@@ -1,0 +1,80 @@
+# Git
+.git
+.gitignore
+.gitattributes
+
+# Build artifacts
+bin/
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Test files
+*.test
+*.out
+coverage.out
+coverage.html
+
+# Documentation
+*.md
+docs/
+
+# CI/CD
+.github/
+.gitlab-ci.yml
+.drone.yml
+Jenkinsfile
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Local development
+.local/
+tmp/
+temp/
+
+# Docker
+Dockerfile
+docker-compose*.yaml
+.dockerignore
+
+# Kubernetes
+*.kubeconfig
+kind-config.yaml
+
+# Helm
+charts/
+
+# Environment files
+.env
+.env.*
+*.env
+
+# Secrets
+*.pem
+*.key
+*.crt
+*.p12
+*.jks
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+*.tmp
+*.temp
