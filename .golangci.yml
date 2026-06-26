@@ -4,7 +4,9 @@ run:
   issues-exit-code: 1
 
 output:
-  format: colored-line-number
+  formats:
+    colored-line-number:
+      path: stdout
   print-issued-lines: true
   print-linter-name: true
 
@@ -91,17 +93,11 @@ linters-settings:
   gocyclo:
     min-complexity: 15
   goimports:
-    local-prefixes: github.com/lingshu/ops-ai
+    local-prefixes: github.com/lingshu/lingshu
   lll:
     line-length: 120
-  maligned:
-    suggest-new: true
   misspell:
     locale: US
-  golint:
-    min-confidence: 0
-  govet:
-    check-shadowing: true
   gocognit:
     min-complexity: 30
   prealloc:
@@ -109,17 +105,17 @@ linters-settings:
   funlen:
     lines: 80
     statements: 40
-  exhaustruct:
-    enabled: false
   gci:
-    local-prefixes: github.com/lingshu/ops-ai
+    sections:
+      - standard
+      - default
+      - prefix(github.com/lingshu/lingshu)
 
 issues:
   exclude-use-default: false
   max-issues-per-linter: 0
   max-same-issues: 0
   new-from-rev: HEAD~1
-  new-from-patch: true
 
   exclude-rules:
     - path: '_test\.go'

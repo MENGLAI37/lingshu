@@ -284,5 +284,4 @@ helm install lingshu lingshu/lingshu \
 ## 联系方式
 
 - 项目主页: https://github.com/lingshu/lingshu
-- 文档: https://docs.lingshu.example.com
-- 邮箱: team@lingshu.example.com
+- 邮箱: menglai378@163.com

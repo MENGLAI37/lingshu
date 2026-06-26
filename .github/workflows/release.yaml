@@ -14,7 +14,7 @@ on:
 env:
   GO_VERSION: '1.25'
   DOCKER_REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository_owner }}/ops-ai-agent
+  IMAGE_NAME: ${{ github.repository_owner }}/lingshu
 
 jobs:
   # ===========================================================================
@@ -27,9 +27,9 @@ jobs:
     strategy:
       matrix:
         include:
-          - binary: ops-ai
+          - binary: lingshu
             context: .
-          - binary: ops-ai-alertd
+          - binary: lingshu-alertd
             context: .
     steps:
       - name: Checkout code
@@ -125,7 +125,7 @@ jobs:
 
       - name: Create tarball
         run: |
-          tar -czvf ops-ai-agent-${{ github.ref_name }}-linux-amd64.tar.gz -C release-assets .
+          tar -czvf lingshu-${{ github.ref_name }}-linux-amd64.tar.gz -C release-assets .
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
@@ -135,6 +135,6 @@ jobs:
           generate_release_notes: true
           files: |
             release-assets/*
-            ops-ai-agent-${{ github.ref_name }}-linux-amd64.tar.gz
+            lingshu-${{ github.ref_name }}-linux-amd64.tar.gz
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
