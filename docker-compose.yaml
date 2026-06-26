@@ -39,7 +39,7 @@ services:
     image: redis:7-alpine
     container_name: lingshu-redis-sentinel
     command: >
-      sh -c "cp /tmp/sentinel.conf /etc/redis/sentinel.conf && redis-sentinel /etc/redis/sentinel.conf"
+      sh -c "while ! redis-cli -h lingshu-redis ping > /dev/null 2>&1; do sleep 1; done && cp /tmp/sentinel.conf /etc/redis/sentinel.conf && redis-sentinel /etc/redis/sentinel.conf"
     ports:
       - "26379:26379"
     volumes:
