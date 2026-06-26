@@ -71,7 +71,7 @@ jobs:
         with:
           files: ./coverage.out
           flags: unittests
-          name: ops-ai-agent
+          name: lingshu
           fail_ci_if_error: false
 
       - name: Generate coverage report
@@ -113,18 +113,18 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
           cache: true
 
-      - name: Build ops-ai
+      - name: Build lingshu
         run: |
           mkdir -p bin/${{ matrix.goos }}_${{ matrix.goarch }}
           CGO_ENABLED=0 GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} \
             go build -ldflags "-s -w -X main.Version=${{ github.sha }}" \
-            -o bin/ops-ai ./cmd/ops-ai
+            -o bin/lingshu ./cmd/lingshu
 
-      - name: Build ops-ai-alertd
+      - name: Build lingshu-alertd
         run: |
           CGO_ENABLED=0 GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} \
             go build -ldflags "-s -w -X main.Version=${{ github.sha }}" \
-            -o bin/ops-ai-alertd ./cmd/alertd
+            -o bin/lingshu-alertd ./cmd/alertd
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
@@ -217,7 +217,7 @@ jobs:
       - name: Create kind cluster
         uses: helm/kind-action@v1
         with:
-          cluster_name: opsai-test
+          cluster_name: lingshu-test
           node_image: kindest/node:v1.30.0
 
       - name: Deploy test applications
@@ -238,11 +238,11 @@ jobs:
         if: failure()
         uses: ./.github/actions/export-kind-logs
         with:
-          cluster_name: opsai-test
+          cluster_name: lingshu-test
 
       - name: Cleanup kind cluster
         if: always()
-        run: kind delete cluster --name opsai-test || true
+        run: kind delete cluster --name lingshu-test || true
 
   # ===========================================================================
   # Summary

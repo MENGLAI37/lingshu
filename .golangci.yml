@@ -54,6 +54,7 @@ linters-settings:
       - G204
   govet:
     enable-all: true
+    check-shadowing: true
   staticcheck:
     checks:
       - all
@@ -91,7 +92,7 @@ linters-settings:
   gocyclo:
     min-complexity: 15
   goimports:
-    local-prefixes: github.com/lingshu/ops-ai
+    local-prefixes: github.com/lingshu/lingshu
   lll:
     line-length: 120
   maligned:
@@ -100,8 +101,6 @@ linters-settings:
     locale: US
   golint:
     min-confidence: 0
-  govet:
-    check-shadowing: true
   gocognit:
     min-complexity: 30
   prealloc:
@@ -112,7 +111,7 @@ linters-settings:
   exhaustruct:
     enabled: false
   gci:
-    local-prefixes: github.com/lingshu/ops-ai
+    local-prefixes: github.com/lingshu/lingshu
 
 issues:
   exclude-use-default: false
