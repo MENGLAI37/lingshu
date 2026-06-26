@@ -1,8 +1,8 @@
 .PHONY: all build test test-integration lint dev-up dev-down migrate-up migrate-down clean help
 .PHONY: docker-build docker-push kind-create kind-delete helm-install helm-uninstall
 
-APP_NAME := ops-ai
-ALERTD_NAME := ops-ai-alertd
+APP_NAME := lingshu
+ALERTD_NAME := lingshu-alertd
 VERSION := v0.1.0
 BUILD_DIR := bin
 
@@ -15,13 +15,13 @@ MIGRATE_VERSION := v4.17.1
 
 # Docker
 DOCKER_REGISTRY ?= ghcr.io
-DOCKER_IMAGE := $(DOCKER_REGISTRY)/$(shell git config user.name 2>/dev/null || echo "lingshu")/ops-ai-agent
+DOCKER_IMAGE := $(DOCKER_REGISTRY)/$(shell git config user.name 2>/dev/null || echo "lingshu")/lingshu-agent
 
 # Kind
-KIND_CLUSTER := opsai-dev
+KIND_CLUSTER := lingshu-dev
 
 # Helm
-HELM_RELEASE := ops-ai
+HELM_RELEASE := lingshu
 
 help:
 	@echo "Available targets:"
@@ -58,7 +58,7 @@ all: build
 build:
 	@echo "==> Building $(APP_NAME)..."
 	@mkdir -p $(BUILD_DIR)
-	CGO_ENABLED=0 $(GO) build $(GOFLAGS) $(LDFLAGS) -o $(BUILD_DIR)/$(APP_NAME) ./cmd/ops-ai
+	CGO_ENABLED=0 $(GO) build $(GOFLAGS) $(LDFLAGS) -o $(BUILD_DIR)/$(APP_NAME) ./cmd/lingshu
 	@echo "==> Building $(ALERTD_NAME)..."
 	CGO_ENABLED=0 $(GO) build $(GOFLAGS) $(LDFLAGS) -o $(BUILD_DIR)/$(ALERTD_NAME) ./cmd/alertd
 	@echo "Build complete. Binaries in $(BUILD_DIR)/"
@@ -77,7 +77,7 @@ build-all:
 			ext=""; \
 			if [ "$${os}" = "windows" ]; then ext=".exe"; fi; \
 			echo "Building for $${os}/$${arch}..."; \
-			CGO_ENABLED=0 GOOS=$${os} GOARCH=$${arch} $(GO) build $(GOFLAGS) $(LDFLAGS) -o $(BUILD_DIR)/$${os}_$${arch}/$(APP_NAME)$${ext} ./cmd/ops-ai; \
+			CGO_ENABLED=0 GOOS=$${os} GOARCH=$${arch} $(GO) build $(GOFLAGS) $(LDFLAGS) -o $(BUILD_DIR)/$${os}_$${arch}/$(APP_NAME)$${ext} ./cmd/lingshu; \
 			CGO_ENABLED=0 GOOS=$${os} GOARCH=$${arch} $(GO) build $(GOFLAGS) $(LDFLAGS) -o $(BUILD_DIR)/$${os}_$${arch}/$(ALERTD_NAME)$${ext} ./cmd/alertd; \
 		done; \
 	done
@@ -178,7 +178,7 @@ migrate-up:
 		echo "migrate not found, installing..."; \
 		$(GO) install -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@$(MIGRATE_VERSION); \
 	fi
-	migrate -path migrations -database "postgres://opsai:opsai@localhost:5432/opsai?sslmode=disable" up
+	migrate -path migrations -database "postgres://lingshu:lingshu@localhost:5432/lingshu?sslmode=disable" up
 
 migrate-down:
 	@echo "==> Running database migrations down..."
@@ -186,7 +186,7 @@ migrate-down:
 		echo "migrate not found, installing..."; \
 		$(GO) install -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@$(MIGRATE_VERSION); \
 	fi
-	migrate -path migrations -database "postgres://opsai:opsai@localhost:5432/opsai?sslmode=disable" down
+	migrate -path migrations -database "postgres://lingshu:lingshu@localhost:5432/lingshu?sslmode=disable" down
 
 migrate-create:
 	@if [ -z "$(NAME)" ]; then \
@@ -267,27 +267,27 @@ kind-logs:
 
 helm-install:
 	@echo "==> Installing Helm chart: $(HELM_RELEASE)..."
-	helm install $(HELM_RELEASE) ./charts/ops-ai \
-		--namespace ops-ai \
+	helm install $(HELM_RELEASE) ./charts/lingshu \
+		--namespace lingshu \
 		--create-namespace \
 		--set image.repository=$(DOCKER_IMAGE) \
 		--set image.tag=$(VERSION)
 
 helm-upgrade:
 	@echo "==> Upgrading Helm chart: $(HELM_RELEASE)..."
-	helm upgrade $(HELM_RELEASE) ./charts/ops-ai \
-		--namespace ops-ai \
+	helm upgrade $(HELM_RELEASE) ./charts/lingshu \
+		--namespace lingshu \
 		--set image.repository=$(DOCKER_IMAGE) \
 		--set image.tag=$(VERSION) \
 		--install
 
 helm-uninstall:
 	@echo "==> Uninstalling Helm chart: $(HELM_RELEASE)..."
-	helm uninstall $(HELM_RELEASE) --namespace ops-ai || true
+	helm uninstall $(HELM_RELEASE) --namespace lingshu || true
 
 helm-template:
 	@echo "==> Rendering Helm template..."
-	helm template $(HELM_RELEASE) ./charts/ops-ai \
+	helm template $(HELM_RELEASE) ./charts/lingshu \
 		--set image.repository=$(DOCKER_IMAGE) \
 		--set image.tag=$(VERSION)
 
@@ -295,7 +295,7 @@ helm-repo-update:
 	helm repo update
 
 helm-lint:
-	helm lint ./charts/ops-ai
+	helm lint ./charts/lingshu
 
 # ===========================================================================
 # Utility targets
