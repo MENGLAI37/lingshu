@@ -1,0 +1,23 @@
+name: Export kind logs
+description: Export logs from a kind cluster for debugging
+
+inputs:
+  cluster_name:
+    description: 'Name of the kind cluster'
+    required: true
+    default: 'lingshu-test'
+
+runs:
+  using: composite
+  steps:
+    - name: Export kind logs
+      shell: bash
+      run: |
+        echo "=== Cluster Info ==="
+        kind get clusters || true
+        echo "=== Kubectl Events (test-apps) ==="
+        kubectl get events -n test-apps --sort-by='.lastTimestamp' 2>/dev/null || true
+        echo "=== Pod Logs ==="
+        kubectl logs -n test-apps --all-containers=true --tail=100 -l 'app in (nginx,redis)' 2>/dev/null || true
+        echo "=== Pod Status ==="
+        kubectl get pods -n test-apps -o wide 2>/dev/null || true

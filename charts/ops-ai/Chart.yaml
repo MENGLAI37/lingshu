@@ -1,0 +1,18 @@
+annotations:
+  category: DevOps
+  licenses: Apache-2.0
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+kubeVersion: ">=1.26.0-0"
+keywords:
+  - kubernetes
+  - sre
+  - ai
+  - agent
+  - ops
+maintainers:
+  - name: LingShu Team
+    email: team@lingshu.example.com
+sources:
+  - https://github.com/lingshu/ops-ai
