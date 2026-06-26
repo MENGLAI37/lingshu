@@ -15,7 +15,7 @@ import (
 // TempDir creates a temporary directory for testing.
 func TempDir(t *testing.T) (string, func()) {
 	t.Helper()
-	dir, err := os.MkdirTemp("", "ops-ai-test-*")
+	dir, err := os.MkdirTemp("", "lingshu-test-*")
 	require.NoError(t, err)
 	
 	cleanup := func() {
@@ -66,7 +66,7 @@ type TestConfig struct {
 // LoadTestConfig loads test configuration from environment.
 func LoadTestConfig() *TestConfig {
 	return &TestConfig{
-		DatabaseURL:  getEnv("TEST_DATABASE_URL", "postgres://opsai:opsai@localhost:5432/opsai?sslmode=disable"),
+		DatabaseURL:  getEnv("TEST_DATABASE_URL", "postgres://lingshu:lingshu@localhost:5432/lingshu?sslmode=disable"),
 		RedisURL:     getEnv("TEST_REDIS_URL", "localhost:6379"),
 		KubeConfig:   getEnv("KUBECONFIG", ""),
 		LLMAPIKey:    os.Getenv("TEST_LLM_API_KEY"),

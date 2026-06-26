@@ -8,9 +8,9 @@ database:
   type: postgres
   host: localhost
   port: 5432
-  user: opsai
-  password: opsai
-  dbname: opsai
+  user: lingshu
+  password: lingshu
+  dbname: lingshu
   sslmode: disable
   max_open_conns: 20
   max_idle_conns: 5

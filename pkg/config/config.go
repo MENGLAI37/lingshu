@@ -67,7 +67,7 @@ func Load(configPath string) (*Config, error) {
 		}
 		v.AddConfigPath(".")
 		v.AddConfigPath("./configs")
-		v.AddConfigPath("/etc/ops-ai")
+		v.AddConfigPath("/etc/lingshu")
 
 		v.SetEnvPrefix("OPSAI")
 		v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))

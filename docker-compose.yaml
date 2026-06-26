@@ -3,26 +3,26 @@ version: '3.8'
 services:
   postgres:
     image: postgres:15-alpine
-    container_name: opsai-postgres
+    container_name: lingshu-postgres
     environment:
-      POSTGRES_USER: opsai
-      POSTGRES_PASSWORD: opsai
-      POSTGRES_DB: opsai
+      POSTGRES_USER: lingshu
+      POSTGRES_PASSWORD: lingshu
+      POSTGRES_DB: lingshu
     ports:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U opsai"]
+      test: ["CMD-SHELL", "pg_isready -U lingshu"]
       interval: 10s
       timeout: 5s
       retries: 5
     networks:
-      - opsai-network
+      - lingshu-network
 
   redis:
     image: redis:7-alpine
-    container_name: opsai-redis
+    container_name: lingshu-redis
     ports:
       - "6379:6379"
     volumes:
@@ -33,11 +33,11 @@ services:
       timeout: 5s
       retries: 5
     networks:
-      - opsai-network
+      - lingshu-network
 
   redis-sentinel:
     image: redis:7-alpine
-    container_name: opsai-redis-sentinel
+    container_name: lingshu-redis-sentinel
     command: >
       sh -c "cp /tmp/sentinel.conf /etc/redis/sentinel.conf && redis-sentinel /etc/redis/sentinel.conf"
     ports:
@@ -48,15 +48,15 @@ services:
     depends_on:
       - redis
     networks:
-      - opsai-network
+      - lingshu-network
 
   minio:
     image: minio/minio:latest
-    container_name: opsai-minio
+    container_name: lingshu-minio
     command: server /data --console-address ":9001"
     environment:
-      MINIO_ROOT_USER: opsai
-      MINIO_ROOT_PASSWORD: opsai123
+      MINIO_ROOT_USER: lingshu
+      MINIO_ROOT_PASSWORD: lingshu123
     ports:
       - "9000:9000"
       - "9001:9001"
@@ -68,11 +68,11 @@ services:
       timeout: 20s
       retries: 3
     networks:
-      - opsai-network
+      - lingshu-network
 
   chromadb:
     image: chromadb/chroma:latest
-    container_name: opsai-chromadb
+    container_name: lingshu-chromadb
     environment:
       CHROMA_SERVER_AUTH_PROVIDER: ""
       CHROMA_SERVER_AUTH_CREDENTIALS_FILE: ""
@@ -86,7 +86,7 @@ services:
       timeout: 10s
       retries: 3
     networks:
-      - opsai-network
+      - lingshu-network
 
 volumes:
   postgres_data:
@@ -96,5 +96,5 @@ volumes:
   chroma_data:
 
 networks:
-  opsai-network:
+  lingshu-network:
     driver: bridge

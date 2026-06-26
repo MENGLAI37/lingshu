@@ -87,7 +87,7 @@ func connectPostgres(cfg *config.DBConfig) (*sqlx.DB, error) {
 }
 
 func connectSQLite() (*sqlx.DB, error) {
-	db, err := sqlx.Connect("sqlite3", "opsai_fallback.db")
+	db, err := sqlx.Connect("sqlite3", "lingshu_fallback.db")
 	if err != nil {
 		return nil, fmt.Errorf("sqlite connect: %w", err)
 	}
