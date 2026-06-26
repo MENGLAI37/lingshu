@@ -7,9 +7,9 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/lingshu/ops-ai/pkg/tui/components"
-	"github.com/lingshu/ops-ai/pkg/tui/styles"
-	"github.com/lingshu/ops-ai/pkg/tui/theme"
+	"github.com/lingshu/lingshu/pkg/tui/components"
+	"github.com/lingshu/lingshu/pkg/tui/styles"
+	"github.com/lingshu/lingshu/pkg/tui/theme"
 )
 
 type Page string
@@ -81,7 +81,7 @@ func NewTUIModel() *TUIModel {
 		statusBar:      components.NewStatusBar(s),
 		commandPreview: components.NewCommandPreview(s),
 		highlighted:    components.NewHighlightedRenderer(s),
-		cluster:        "kind-opsai-dev",
+		cluster:        "kind-lingshu-dev",
 		namespace:      "default",
 		environment:    "development",
 		msgChan:        make(chan tea.Msg, 100),
@@ -105,7 +105,7 @@ func (m *TUIModel) Init() tea.Cmd {
 		m.input.Focus(),
 		m.statusBar.Init(),
 		tea.EnterAltScreen,
-		tea.SetWindowTitle("ops-ai - AI-native SRE Agent"),
+		tea.SetWindowTitle("lingshu - AI-native SRE Agent"),
 	)
 }
 
@@ -247,7 +247,7 @@ func (m *TUIModel) renderHeader() string {
 	titleStyle := m.styles.Header
 	subtitleStyle := lipgloss.NewStyle().Foreground(m.theme.Muted)
 
-	title := titleStyle.Render("⚡ ops-ai")
+	title := titleStyle.Render("⚡ lingshu")
 	subtitle := subtitleStyle.Render("AI-native SRE Agent")
 
 	rightInfo := fmt.Sprintf("%s @ %s [%s]",

@@ -1,4 +1,4 @@
-module github.com/lingshu/ops-ai
+module github.com/lingshu/lingshu
 
 go 1.25.1
 

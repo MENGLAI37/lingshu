@@ -6,7 +6,7 @@ import (
 	"os"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/lingshu/ops-ai/pkg/tui/models"
+	"github.com/lingshu/lingshu/pkg/tui/models"
 )
 
 var Version = "v0.1.0"
@@ -17,7 +17,7 @@ func main() {
 	flag.Parse()
 
 	if *showVersion {
-		fmt.Printf("ops-ai version %s\n", Version)
+		fmt.Printf("lingshu version %s\n", Version)
 		os.Exit(0)
 	}
 
@@ -34,7 +34,7 @@ func main() {
 
 func runTUI() error {
 	model := models.NewTUIModel()
-	model.SetCluster("kind-opsai-dev")
+	model.SetCluster("kind-lingshu-dev")
 	model.SetNamespace("default")
 	model.SetEnvironment("development")
 
@@ -46,7 +46,7 @@ func runTUI() error {
 }
 
 func runNoTUI() {
-	fmt.Println("ops-ai - AI-native SRE Agent")
+	fmt.Println("lingshu - AI-native SRE Agent")
 	fmt.Printf("Version: %s\n", Version)
 	fmt.Println("Mode: No-TUI (plain text)")
 	fmt.Println("\nThis mode is under development.")

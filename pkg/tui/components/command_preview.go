@@ -6,7 +6,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/lingshu/ops-ai/pkg/tui/styles"
+	"github.com/lingshu/lingshu/pkg/tui/styles"
 )
 
 type RiskLevel string

@@ -2,7 +2,7 @@ package styles
 
 import (
 	"github.com/charmbracelet/lipgloss"
-	"github.com/lingshu/ops-ai/pkg/tui/theme"
+	"github.com/lingshu/lingshu/pkg/tui/theme"
 )
 
 type Styles struct {

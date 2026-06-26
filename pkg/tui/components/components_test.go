@@ -4,8 +4,8 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/lingshu/ops-ai/pkg/tui/styles"
-	"github.com/lingshu/ops-ai/pkg/tui/theme"
+	"github.com/lingshu/lingshu/pkg/tui/styles"
+	"github.com/lingshu/lingshu/pkg/tui/theme"
 )
 
 func getTestStyles() *styles.Styles {
