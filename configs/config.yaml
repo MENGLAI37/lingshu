@@ -1,0 +1,30 @@
+schema_version: v2.3.0
+
+server:
+  host: 0.0.0.0
+  port: 8080
+
+database:
+  type: postgres
+  host: localhost
+  port: 5432
+  user: opsai
+  password: opsai
+  dbname: opsai
+  sslmode: disable
+  max_open_conns: 20
+  max_idle_conns: 5
+
+redis:
+  mode: single
+  addresses:
+    - localhost:6379
+  master_name: mymaster
+  password: ""
+  db: 0
+  pool_size: 10
+  min_idle_conns: 3
+
+log:
+  level: info
+  format: json
