@@ -38,11 +38,13 @@ services:
   redis-sentinel:
     image: redis:7-alpine
     container_name: opsai-redis-sentinel
-    command: redis-sentinel /etc/redis/sentinel.conf
+    command: >
+      sh -c "cp /tmp/sentinel.conf /etc/redis/sentinel.conf && redis-sentinel /etc/redis/sentinel.conf"
     ports:
       - "26379:26379"
     volumes:
-      - ./configs/redis-sentinel.conf:/etc/redis/sentinel.conf
+      - ./configs/redis-sentinel.conf:/tmp/sentinel.conf
+      - sentinel_data:/etc/redis
     depends_on:
       - redis
     networks:
@@ -89,6 +91,7 @@ services:
 volumes:
   postgres_data:
   redis_data:
+  sentinel_data:
   minio_data:
   chroma_data:
 
