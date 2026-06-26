@@ -1,0 +1,97 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: opsai-postgres
+    environment:
+      POSTGRES_USER: opsai
+      POSTGRES_PASSWORD: opsai
+      POSTGRES_DB: opsai
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U opsai"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - opsai-network
+
+  redis:
+    image: redis:7-alpine
+    container_name: opsai-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - opsai-network
+
+  redis-sentinel:
+    image: redis:7-alpine
+    container_name: opsai-redis-sentinel
+    command: redis-sentinel /etc/redis/sentinel.conf
+    ports:
+      - "26379:26379"
+    volumes:
+      - ./configs/redis-sentinel.conf:/etc/redis/sentinel.conf
+    depends_on:
+      - redis
+    networks:
+      - opsai-network
+
+  minio:
+    image: minio/minio:latest
+    container_name: opsai-minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: opsai
+      MINIO_ROOT_PASSWORD: opsai123
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+    networks:
+      - opsai-network
+
+  chromadb:
+    image: chromadb/chroma:latest
+    container_name: opsai-chromadb
+    environment:
+      CHROMA_SERVER_AUTH_PROVIDER: ""
+      CHROMA_SERVER_AUTH_CREDENTIALS_FILE: ""
+    ports:
+      - "8000:8000"
+    volumes:
+      - chroma_data:/chroma/chroma
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/heartbeat"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - opsai-network
+
+volumes:
+  postgres_data:
+  redis_data:
+  minio_data:
+  chroma_data:
+
+networks:
+  opsai-network:
+    driver: bridge
