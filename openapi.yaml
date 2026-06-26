@@ -1,8 +1,8 @@
 openapi: 3.0.3
 info:
-  title: ops-ai Agent API
+  title: lingshu Agent API
   description: |
-    运维 AI Agent (ops-ai) REST API 规范。
+    运维 AI Agent (lingshu) REST API 规范。
 
     ## 认证
     - Bearer Token (OIDC JWT): `Authorization: Bearer <jwt>`
@@ -31,7 +31,7 @@ info:
 servers:
   - url: http://localhost:8080
     description: 本地开发服务器
-  - url: https://api.ops-ai.example.com
+  - url: https://api.lingshu.example.com
     description: 生产环境
 
 security:

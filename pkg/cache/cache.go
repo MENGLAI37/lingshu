@@ -7,8 +7,8 @@ import (
 
 	"github.com/redis/go-redis/v9"
 
-	"github.com/lingshu/ops-ai/pkg/config"
-	"github.com/lingshu/ops-ai/pkg/logger"
+	"github.com/lingshu/lingshu/pkg/config"
+	"github.com/lingshu/lingshu/pkg/logger"
 )
 
 type Cache struct {

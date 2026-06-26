@@ -10,8 +10,8 @@ import (
 	_ "github.com/lib/pq"
 	_ "github.com/mattn/go-sqlite3"
 
-	"github.com/lingshu/ops-ai/pkg/config"
-	"github.com/lingshu/ops-ai/pkg/logger"
+	"github.com/lingshu/lingshu/pkg/config"
+	"github.com/lingshu/lingshu/pkg/logger"
 )
 
 type Database struct {

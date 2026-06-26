@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/lingshu/ops-ai/pkg/config"
+	"github.com/lingshu/lingshu/pkg/config"
 )
 
 func TestSQLiteFallback(t *testing.T) {
