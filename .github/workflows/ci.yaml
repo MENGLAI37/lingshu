@@ -220,6 +220,9 @@ jobs:
           cluster_name: lingshu-test
           node_image: kindest/node:v1.30.0
 
+      - name: Create namespace
+        run: kubectl create namespace test-apps --dry-run=client -o yaml | kubectl apply -f -
+
       - name: Deploy test applications
         run: kubectl apply -f deployments/k8s/test-apps.yaml
 
