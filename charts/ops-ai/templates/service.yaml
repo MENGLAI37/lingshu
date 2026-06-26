@@ -1,0 +1,33 @@
+{{/*
+Service for ops-ai agent
+*/}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "ops-ai.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "ops-ai.labels" . | nindent 4 }}
+    {{- toYaml .Values.serviceLabels | nindent 4 }}
+  {{- with .Values.service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.service.type }}
+  clusterIP: None
+  ports:
+    - port: {{ .Values.service.ports.http }}
+      targetPort: http
+      protocol: TCP
+      name: http
+    - port: {{ .Values.service.ports.metrics }}
+      targetPort: metrics
+      protocol: TCP
+      name: metrics
+    - port: {{ .Values.service.ports.sentinel }}
+      targetPort: sentinel
+      protocol: TCP
+      name: sentinel
+  selector:
+    {{- include "ops-ai.selectorLabels" . | nindent 4 }}

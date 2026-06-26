@@ -1,0 +1,42 @@
+{{/*
+ConfigMap for application configuration
+*/}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "ops-ai.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "ops-ai.labels" . | nindent 4 }}
+data:
+  config.yaml: |
+    schema_version: v2.3.0
+    
+    server:
+      host: 0.0.0.0
+      port: {{ .Values.service.ports.http }}
+    
+    database:
+      type: {{ .Values.database.type }}
+      host: {{ .Values.database.host | quote }}
+      port: {{ .Values.database.port }}
+      user: {{ .Values.database.user | quote }}
+      dbname: {{ .Values.database.name | quote }}
+      sslmode: {{ .Values.database.sslmode }}
+      max_open_conns: {{ .Values.database.maxOpenConns }}
+      max_idle_conns: {{ .Values.database.maxIdleConns }}
+    
+    redis:
+      mode: {{ .Values.redis.mode }}
+      addresses:
+        - {{ .Values.redis.host }}:{{ .Values.redis.port }}
+      {{- if .Values.redis.sentinel.enabled }}
+      master_name: {{ .Values.redis.sentinel.masterName }}
+      {{- end }}
+      db: {{ .Values.redis.database }}
+      pool_size: {{ .Values.redis.poolSize }}
+      min_idle_conns: {{ .Values.redis.minIdleConns }}
+    
+    log:
+      level: {{ .Values.observability.logging.level }}
+      format: {{ .Values.observability.logging.format }}

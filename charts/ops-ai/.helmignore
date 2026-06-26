@@ -1,0 +1,45 @@
+# Patterns to ignore when building packages.
+# This supports shell glob matching
+.*
+
+# git files
+.git
+.gitignore
+.gitattributes
+
+# CI/CD
+.github/
+.gitlab-ci.yml
+.drone.yml
+Jenkinsfile
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Documentation
+*.md
+docs/
+LICENSE
+
+# Testing
+tests/
+
+# Local files
+.local/
+tmp/
+temp/
+*.local
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Helm
+templates/tests/
+
+# Chart files
+values.yaml

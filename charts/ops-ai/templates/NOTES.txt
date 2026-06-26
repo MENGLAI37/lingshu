@@ -1,0 +1,59 @@
+{{/*
+NOTES.txt for ops-ai chart
+*/}}
+{{/*
+Get helper functions
+*/}}
+{{- define "ops-ai.fullname" -}}
+{{- if .Values.fullnameOverride }}
+{{- .Values.fullnameOverride | trunc 63 | trimSuffix "-" }}
+{{- else }}
+{{- $name := default .Chart.Name .Values.nameOverride }}
+{{- if contains $name .Release.Name }}
+{{- .Release.Name | trunc 63 | trimSuffix "-" }}
+{{- else }}
+{{- printf "%s-%s" .Release.Name $name | trunc 63 | trimSuffix "-" }}
+{{- end }}
+{{- end }}
+{{- end }}
+
+Thank you for installing {{ .Chart.Name | title }}!
+
+Your release is named {{ .Release.Name | quote }}.
+It has been installed into the namespace: {{ .Release.Namespace | quote }}
+
+To learn more about the release, try:
+  $ helm status {{ .Release.Name }} -n {{ .Release.Namespace }}
+
+To get the application pods, run:
+  $ kubectl get pods -n {{ .Release.Namespace }}
+
+To get the services, run:
+  $ kubectl get svc -n {{ .Release.Namespace }}
+
+To get the StatefulSet, run:
+  $ kubectl get statefulset -n {{ .Release.Namespace }}
+
+To view the logs, run:
+  $ kubectl logs -n {{ .Release.Namespace }} -l app.kubernetes.io/name={{ include "ops-ai.fullname" . }}
+
+{{/*
+Access information
+*/}}
+The application has been configured with:
+
+  - HTTP API: Port {{ .Values.service.ports.http }}
+  - Metrics: Port {{ .Values.service.ports.metrics }}
+  - Redis Sentinel: Port {{ .Values.service.ports.sentinel }}
+
+{{/*
+Configuration reference
+*/}}
+To see all configuration options:
+  $ helm show values {{ .Chart.Name }}
+
+To upgrade the release:
+  $ helm upgrade {{ .Release.Name }} {{ .Chart.Name }} -n {{ .Release.Namespace }}
+
+To uninstall the release:
+  $ helm uninstall {{ .Release.Name }} -n {{ .Release.Namespace }}
