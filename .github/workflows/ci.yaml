@@ -1,5 +1,9 @@
 name: CI
 
+permissions:
+  security-events: write  
+  contents: read          
+
 on:
   push:
     branches: [main, develop, 'release/**']
@@ -13,7 +17,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  GO_VERSION: '1.25'
+  GO_VERSION: '1.26'
   GOLANGCI_LINT_VERSION: 'v1.59.0'
 
 jobs:
@@ -33,6 +37,9 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: true
+
+      - name: Download dependencies
+        run: go mod download
 
       - name: Run golangci-lint
         uses: golangci/golangci-lint-action@v6
@@ -61,6 +68,9 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: true
+
+      - name: Download dependencies
+        run: go mod download
 
       - name: Run unit tests
         run: go test -v -race -coverprofile=coverage.out -covermode=atomic ./...
@@ -149,6 +159,9 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: true
+
+      - name: Download dependencies
+        run: go mod download
 
       - name: Run gosec security scanner
         uses: securego/gosec@master
