@@ -37,7 +37,7 @@ linters:
   disable:
     - exhaustruct
     - exhaustive
-    - gochecknaming
+    # - gochecknaming  # 
     - goheader
     - goimports
     - lll
