@@ -13,7 +13,7 @@ import (
 
 // IntegrationTestSuite is a test suite for integration tests with kind.
 type IntegrationTestSuite struct {
-	suite.Suite
+	*suite.Suite
 	ClusterName string
 	SkipCleanup bool
 }
