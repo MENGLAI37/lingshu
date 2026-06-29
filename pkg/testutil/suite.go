@@ -12,9 +12,9 @@ import (
 
 // TestSuite is a base test suite providing common testing utilities.
 type TestSuite struct {
-	suite.Suite
-	SetupCalled    bool
-	TeardownCalled bool
+	*suite.Suite
+	SetupCalled     bool
+	TeardownCalled  bool
 }
 
 // SetupSuite is called once before running the test suite.
@@ -58,7 +58,7 @@ func (its *IntegrationTestSuite) SetupSuite() {
 
 // BenchmarkSuite provides utilities for running benchmarks.
 type BenchmarkSuite struct {
-	suite.Suite
+	*suite.Suite
 }
 
 // RunBenchmark runs a benchmark test with the given name and function.
