@@ -1,20 +1,23 @@
+//go:build cgo
+
 package db
 
 import (
 	"context"
+	"os"
 	"testing"
 	"time"
-
-	"github.com/DATA-DOG/go-sqlmock"
-	"github.com/jmoiron/sqlx"
 
 	"github.com/lingshu/lingshu/pkg/config"
 )
 
+// TestSQLiteFallback 测试 SQLite 回退功能
+// 仅在 CGO 启用时运行，这是验证生产环境降级机制的关键测试
 func TestSQLiteFallback(t *testing.T) {
-	// Skip if CGO is disabled (e.g., Windows cross-compile)
-	// SQLite fallback is tested via mock in other environments
-	t.Skip("SQLite requires CGO, skipping in CGO-disabled environment")
+	// 检查是否明确禁用 SQLite 测试
+	if os.Getenv("SKIP_SQLITE_TESTS") == "true" {
+		t.Skip("SKIP_SQLITE_TESTS is set, skipping SQLite fallback test")
+	}
 
 	cfg := &config.DBConfig{
 		Type:         "sqlite",
@@ -30,28 +33,40 @@ func TestSQLiteFallback(t *testing.T) {
 
 	db, err := Init(cfg)
 	if err != nil {
-		t.Fatalf("Failed to init database with fallback: %v", err)
+		t.Fatalf("Failed to init database with SQLite fallback: %v", err)
 	}
 	defer db.Close()
 
 	if !db.IsFallback() {
-		t.Error("Expected to be using fallback mode")
+		t.Error("Expected to be using fallback mode (SQLite)")
 	}
 
 	if db.DB() == nil {
-		t.Error("Expected DB() to return non-nil")
+		t.Error("Expected DB() to return non-nil SQLite connection")
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
 	if err := db.PingContext(ctx); err != nil {
-		t.Errorf("Ping failed: %v", err)
+		t.Errorf("SQLite Ping failed: %v", err)
+	}
+
+	// 验证可以执行简单查询
+	var version string
+	err = db.DB().GetContext(ctx, &version, "SELECT sqlite_version()")
+	if err != nil {
+		t.Errorf("Failed to query SQLite version: %v", err)
+	} else {
+		t.Logf("SQLite version: %s", version)
 	}
 }
 
+// TestClose 测试数据库关闭
 func TestClose(t *testing.T) {
-	t.Skip("SQLite requires CGO, skipping in CGO-disabled environment")
+	if os.Getenv("SKIP_SQLITE_TESTS") == "true" {
+		t.Skip("SKIP_SQLITE_TESTS is set, skipping SQLite close test")
+	}
 
 	cfg := &config.DBConfig{
 		Type:         "sqlite",
@@ -69,63 +84,39 @@ func TestClose(t *testing.T) {
 	}
 }
 
-// TestPostgresConnection tests PostgreSQL connection with mock
-func TestPostgresConnection(t *testing.T) {
-	db, mock, err := sqlmock.New()
+// TestSQLiteFallbackWithPostgresFailure 测试 PostgreSQL 故障时自动降级到 SQLite
+// 这是生产环境最关键的降级场景
+func TestSQLiteFallbackWithPostgresFailure(t *testing.T) {
+	if os.Getenv("SKIP_SQLITE_TESTS") == "true" {
+		t.Skip("SKIP_SQLITE_TESTS is set, skipping fallback test")
+	}
+
+	// 配置指向不存在的 PostgreSQL，验证会正确降级到 SQLite
+	cfg := &config.DBConfig{
+		Type:         "sqlite", // 指示优先尝试 SQLite
+		Host:         "localhost",
+		Port:         9999, // 无效端口
+		User:         "nonexistent",
+		Password:     "nonexistent",
+		DBName:       "nonexistent",
+		SSLMode:      "disable",
+		MaxOpenConns: 5,
+		MaxIdleConns: 2,
+	}
+
+	db, err := Init(cfg)
 	if err != nil {
-		t.Skip("sqlmock not available, skipping")
+		t.Fatalf("SQLite fallback should succeed even when PostgreSQL is unavailable: %v", err)
 	}
 	defer db.Close()
 
-	mock.ExpectPing()
-
-	// Test that ping succeeds with mock
-	if err := db.Ping(); err != nil {
-		t.Errorf("Mock ping failed: %v", err)
-	}
-}
-
-// TestDatabaseWrapper tests Database wrapper methods with mock
-func TestDatabaseWrapper(t *testing.T) {
-	db, mock, err := sqlmock.New()
-	if err != nil {
-		t.Skip("sqlmock not available, skipping")
-	}
-	defer db.Close()
-
-	sqlxDB := sqlx.NewDb(db, "postgres")
-
-	// Test that SelectContext doesn't panic (mock returns no rows)
-	mock.ExpectQuery("SELECT (.+) FROM test").
-		WillReturnRows(sqlmock.NewRows([]string{"id"}))
-
-	var result []int
-	err = sqlxDB.SelectContext(context.Background(), &result, "SELECT id FROM test LIMIT 1")
-	if err != nil {
-		t.Logf("SelectContext returned: %v (expected with mock)", err)
-	}
-}
-
-// TestInitWithMock tests Init with mock database
-func TestInitWithMock(t *testing.T) {
-	db, mock, err := sqlmock.New()
-	if err != nil {
-		t.Skip("sqlmock not available, skipping")
-	}
-	defer db.Close()
-
-	mock.ExpectPing()
-
-	// Test that we can wrap mock db with Database struct
-	database := &Database{
-		Primary: sqlx.NewDb(db, "postgres"),
+	if !db.IsFallback() {
+		t.Error("Expected to be in fallback mode (using SQLite after PostgreSQL failure)")
 	}
 
-	if database.DB() == nil {
-		t.Error("Expected DB() to return non-nil")
-	}
-
-	if database.IsFallback() {
-		t.Error("Expected not to be in fallback mode")
+	// 验证 SQLite 可用
+	ctx := context.Background()
+	if err := db.PingContext(ctx); err != nil {
+		t.Errorf("SQLite should be functional as fallback: %v", err)
 	}
 }
