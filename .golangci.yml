@@ -5,8 +5,8 @@ run:
 
 output:
   formats:
-    colored-line-number:
-      path: stdout
+    - format: "colored-line-number"  
+      path: "stdout"
   print-issued-lines: true
   print-linter-name: true
 
