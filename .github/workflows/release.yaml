@@ -1,5 +1,9 @@
 name: Release
 
+permissions:
+  security-events: write  
+  contents: read 
+
 on:
   push:
     tags:
@@ -12,7 +16,7 @@ on:
         type: string
 
 env:
-  GO_VERSION: '1.25'
+  GO_VERSION: '1.26'
   DOCKER_REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository_owner }}/lingshu
 
