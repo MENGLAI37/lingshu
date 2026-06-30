@@ -209,7 +209,8 @@ func (c *ConfigPanel) initAddFields() {
 }
 
 func (c *ConfigPanel) saveConfig() tea.Cmd {
-	if c.mode == modeEdit {
+	switch c.mode {
+	case modeEdit:
 		if c.selectedIndex < 0 || c.selectedIndex >= len(c.providers) {
 			return nil
 		}
@@ -228,7 +229,7 @@ func (c *ConfigPanel) saveConfig() tea.Cmd {
 			IsLocal:    c.providers[c.selectedIndex].IsLocal,
 			MaxRetries: c.providers[c.selectedIndex].MaxRetries,
 		}
-	} else if c.mode == modeAdd {
+	case modeAdd:
 		name := strings.TrimSpace(c.inputFields[0].Value())
 		model := strings.TrimSpace(c.inputFields[1].Value())
 		apiKey := strings.TrimSpace(c.inputFields[2].Value())

@@ -47,7 +47,6 @@ type TUIModel struct {
 	width       int
 	height      int
 	showHelp    bool
-	showConfig  bool
 
 	cluster     string
 	namespace   string
