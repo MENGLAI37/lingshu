@@ -2,6 +2,7 @@ package alertd
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -410,7 +411,7 @@ func TestRegisterHandler(t *testing.T) {
 	s.stopCh = make(chan struct{})
 	s.running = true
 	s.wg.Add(1)
-	go s.processAlerts(nil)
+	go s.processAlerts(context.TODO())
 
 	alert := &Alert{
 		ID:       "test-alert",

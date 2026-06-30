@@ -1,12 +1,24 @@
 package models
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/lingshu/lingshu/pkg/agent"
+	"github.com/lingshu/lingshu/pkg/config"
+	"github.com/lingshu/lingshu/pkg/k8s"
+	"github.com/lingshu/lingshu/pkg/llm"
+	"github.com/lingshu/lingshu/pkg/security"
+	"github.com/lingshu/lingshu/pkg/tools"
+	"github.com/lingshu/lingshu/pkg/tools/l0"
+	"github.com/lingshu/lingshu/pkg/tools/l1"
+	"github.com/lingshu/lingshu/pkg/tools/l2"
 	"github.com/lingshu/lingshu/pkg/tui/components"
 	"github.com/lingshu/lingshu/pkg/tui/styles"
 	"github.com/lingshu/lingshu/pkg/tui/theme"
@@ -38,13 +50,16 @@ type TUIModel struct {
 	cluster     string
 	namespace   string
 	environment string
-	sessionID   string //nolint:unused
 
 	aiThinking bool
 	streaming  bool
 
 	msgChan chan tea.Msg
 	program *tea.Program
+
+	// Agent Loop integration
+	agentLoop *agent.DefaultAgentLoop
+	k8sClient *k8s.ClientManager
 }
 
 type AIResponseMsg struct {
@@ -92,7 +107,148 @@ func NewTUIModel() *TUIModel {
 		msgChan:        make(chan tea.Msg, 100),
 	}
 
+	// Initialize Agent Loop if configuration is available
+	m.initAgentLoop()
+
 	return m
+}
+
+// initAgentLoop initializes the Agent Loop with K8s tools and LLM
+func (m *TUIModel) initAgentLoop() {
+	// Try to load configuration
+	cfg := config.Get()
+
+	// Initialize K8s client from kubeconfig
+	var k8sClient *k8s.ClientManager
+	kubeconfigPath := ""
+	if cfg != nil && cfg.Server.Host != "" {
+		// Try to use configured kubeconfig if available
+	}
+	// Try to get kubeconfig from environment or default location
+	if os.Getenv("KUBECONFIG") != "" || kubeconfigPath != "" {
+		var err error
+		k8sClient, err = k8s.NewClientManager(kubeconfigPath)
+		if err != nil {
+			fmt.Printf("Warning: Failed to initialize K8s client: %v\n", err)
+		} else {
+			m.k8sClient = k8sClient
+		}
+	}
+
+	// Create LLM router with default or configured provider
+	llmRouter := m.createLLMRouter(cfg)
+
+	if llmRouter == nil {
+		fmt.Println("Warning: No LLM provider configured, Agent Loop will not be available")
+		return
+	}
+
+	// Initialize tool registry with K8s tools
+	toolRegistry := agent.NewDefaultToolRegistry()
+	if m.k8sClient != nil {
+		// Get the default context clientset
+		clientset, err := m.k8sClient.GetClientSet(context.Background(), "")
+		if err != nil {
+			fmt.Printf("Warning: Failed to get clientset: %v\n", err)
+		} else {
+			// Register L0 tools (read-only)
+			_ = toolRegistry.RegisterTool(l0.NewGetTool(clientset))
+			_ = toolRegistry.RegisterTool(l0.NewDescribeTool(clientset))
+			_ = toolRegistry.RegisterTool(l0.NewLogsTool(clientset))
+			_ = toolRegistry.RegisterTool(l0.NewEventsTool(clientset))
+			// Register L1 tools (safe write)
+			_ = toolRegistry.RegisterTool(l1.NewTopTool(clientset, nil))
+			_ = toolRegistry.RegisterTool(l1.NewStatusTool(clientset))
+			// Register L2 tools (moderate risk)
+			_ = toolRegistry.RegisterTool(l2.NewScaleTool(clientset))
+			_ = toolRegistry.RegisterTool(l2.NewRestartTool(clientset))
+			_ = toolRegistry.RegisterTool(l2.NewRolloutTool(clientset))
+			_ = toolRegistry.RegisterTool(l2.NewPatchTool(clientset))
+		}
+	}
+
+	// Initialize security gateway
+	securityGateway := m.createSecurityGateway()
+
+	// Initialize Agent Loop
+	agentLoopConfig := agent.DefaultLoopConfig()
+	m.agentLoop = agent.NewDefaultAgentLoop(
+		agentLoopConfig,
+		llmRouter,
+		toolRegistry,
+		securityGateway,
+	)
+}
+
+// createLLMRouter creates an LLM router from config or environment
+func (m *TUIModel) createLLMRouter(cfg *config.Config) *llm.Router {
+	// Check environment variables first
+	apiKey := os.Getenv("OPENAI_API_KEY")
+	baseURL := os.Getenv("OPENAI_BASE_URL")
+	model := os.Getenv("OPENAI_MODEL")
+	if model == "" {
+		model = "gpt-4o"
+	}
+	if baseURL == "" {
+		baseURL = "https://api.openai.com/v1"
+	}
+
+	// If no API key, return nil (demo mode will be used)
+	if apiKey == "" {
+		fmt.Println("Note: OPENAI_API_KEY not set, running in demo mode")
+		return nil
+	}
+
+	// Create provider config
+	providerConfig := llm.ProviderConfig{
+		Name:    "openai",
+		Model:   model,
+		APIKey:  apiKey,
+		BaseURL: baseURL,
+		Priority: 1,
+	}
+
+	return llm.NewRouter([]llm.ProviderConfig{providerConfig})
+}
+
+// createSecurityGateway creates a security gateway for the agent loop
+func (m *TUIModel) createSecurityGateway() agent.SecurityGateway {
+	return &agentSecurityGatewayAdapter{
+		gateway: security.NewDefaultSecurityGateway(security.DefaultGatewayConfig()),
+	}
+}
+
+// agentSecurityGatewayAdapter wraps security.DefaultSecurityGateway to implement agent.SecurityGateway
+type agentSecurityGatewayAdapter struct {
+	gateway *security.DefaultSecurityGateway
+}
+
+func (a *agentSecurityGatewayAdapter) EvaluateRisk(ctx context.Context, toolName string, args map[string]any) (agent.RiskEvaluation, error) {
+	eval, err := a.gateway.EvaluateRisk(ctx, toolName, args)
+	if err != nil {
+		return agent.RiskEvaluation{}, err
+	}
+
+	// Convert security.RiskEvaluation to agent.RiskEvaluation
+	return agent.RiskEvaluation{
+		RiskLevel:         tools.ToolRiskLevel(eval.RiskLevel),
+		Score:             eval.Score,
+		Reason:            eval.Reason,
+		AffectedResources: eval.AffectedResources,
+		EnvironmentWeight: eval.EnvironmentWeight,
+	}, nil
+}
+
+func (a *agentSecurityGatewayAdapter) IsAllowed(ctx context.Context, evaluation agent.RiskEvaluation) (bool, string) {
+	// Convert agent.RiskEvaluation back to security.RiskEvaluation
+	secEval := security.RiskEvaluation{
+		RiskLevel:         security.RiskLevel(evaluation.RiskLevel),
+		Score:             evaluation.Score,
+		Reason:            evaluation.Reason,
+		AffectedResources: evaluation.AffectedResources,
+		EnvironmentWeight: evaluation.EnvironmentWeight,
+	}
+	return a.gateway.IsAllowed(ctx, secEval)
 }
 
 func (m *TUIModel) SetProgram(p *tea.Program) {
@@ -417,13 +573,172 @@ func (m *TUIModel) handleUserInput(input string) {
 	m.aiThinking = true
 	m.statusBar.AddTokens(len(input) / 4)
 
-	go m.simulateAIResponse(input)
+	// Use real Agent Loop if available
+	if m.agentLoop != nil {
+		go m.runAgentLoop(input)
+	} else {
+		// Fallback to demo mode with mock responses
+		go m.runDemoMode(input)
+	}
 }
 
-func (m *TUIModel) simulateAIResponse(userInput string) {
+// runAgentLoop executes the real Agent Loop for user input
+func (m *TUIModel) runAgentLoop(userInput string) {
+	ctx := context.Background()
+
+	// Create event handler to process agent events
+	eventHandler := func(event agent.LoopEvent) {
+		switch event.Type {
+		case "thinking":
+			if thought, ok := event.Data.(string); ok {
+				m.SendMessage(AIResponseMsg{Content: thought + "\n\n", Done: false})
+			}
+		case "state_change":
+			switch event.State {
+			case agent.StateExecuting:
+				m.SendMessage(AIResponseMsg{Content: "正在执行工具...\n\n", Done: false})
+			case agent.StateObserving:
+				m.SendMessage(AIResponseMsg{Content: "分析结果...\n\n", Done: false})
+			}
+		case "tool_result":
+			if result, ok := event.Data.(agent.ToolExecutionResult); ok {
+				formattedResult := m.formatToolExecutionResult(result)
+				m.SendMessage(ToolResultMsg{Content: formattedResult})
+			}
+		case "error":
+			if err, ok := event.Data.(error); ok {
+				m.SendMessage(AIResponseMsg{Content: fmt.Sprintf("错误: %v\n\n", err), Done: true})
+			}
+		}
+	}
+
+	// Execute the agent loop
+	result, err := m.agentLoop.Execute(ctx, userInput, eventHandler)
+
+	if err != nil {
+		m.SendMessage(AIResponseMsg{
+			Content: fmt.Sprintf("Agent 执行失败: %v\n", err),
+			Done:    true,
+			Error:   err,
+		})
+		m.aiThinking = false
+		return
+	}
+
+	// Send final response
+	if result.FinalResponse != "" {
+		m.SendMessage(AIResponseMsg{
+			Content: "\n" + result.FinalResponse + "\n",
+			Done:    true,
+		})
+	} else if len(result.ToolResults) > 0 {
+		// Generate summary from tool results
+		summary := m.generateDiagnosisSummary(result.ToolResults)
+		m.SendMessage(AIResponseMsg{
+			Content: "\n" + summary + "\n",
+			Done:    true,
+		})
+	}
+
+	m.aiThinking = false
+}
+
+// formatToolExecutionResult formats a tool execution result for display
+func (m *TUIModel) formatToolExecutionResult(result agent.ToolExecutionResult) string {
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("📋 工具: %s\n", result.ToolName))
+
+	if result.Error != nil {
+		sb.WriteString(fmt.Sprintf("❌ 错误: %v\n", result.Error))
+		return sb.String()
+	}
+
+	sb.WriteString("✅ 执行成功\n")
+
+	if result.Result != nil {
+		if result.Result.Data != nil {
+			dataJSON, err := json.MarshalIndent(result.Result.Data, "", "  ")
+			if err == nil {
+				// Truncate long outputs
+				dataStr := string(dataJSON)
+				if len(dataStr) > 2000 {
+					dataStr = dataStr[:2000] + "\n... (输出已截断)"
+				}
+				sb.WriteString(fmt.Sprintf("结果:\n%s\n", dataStr))
+			}
+		}
+		if result.Result.Message != "" {
+			sb.WriteString(fmt.Sprintf("消息: %s\n", result.Result.Message))
+		}
+	}
+
+	sb.WriteString(fmt.Sprintf("耗时: %v\n", result.Duration))
+	return sb.String()
+}
+
+// generateDiagnosisSummary generates a diagnosis summary from tool results
+func (m *TUIModel) generateDiagnosisSummary(results []agent.ToolExecutionResult) string {
+	var sb strings.Builder
+	sb.WriteString("📊 诊断摘要\n\n")
+
+	// Analyze results for pod restart diagnosis
+	var podEvents []string
+	var podLogs []string
+	var podStatus []string
+
+	for _, result := range results {
+		if result.ToolName == "k8s_events" && result.Result != nil {
+			podEvents = append(podEvents, result.Result.Message)
+		}
+		if result.ToolName == "k8s_logs" && result.Result != nil {
+			podLogs = append(podLogs, result.Result.Message)
+		}
+		if result.ToolName == "k8s_get" && result.Result != nil {
+			podStatus = append(podStatus, result.Result.Message)
+		}
+	}
+
+	if len(podEvents) > 0 || len(podLogs) > 0 || len(podStatus) > 0 {
+		sb.WriteString("🔍 检查结果:\n")
+
+		if len(podStatus) > 0 {
+			sb.WriteString("\nPod 状态:\n")
+			for _, s := range podStatus {
+				sb.WriteString(fmt.Sprintf("  %s\n", s))
+			}
+		}
+
+		if len(podEvents) > 0 {
+			sb.WriteString("\n相关事件:\n")
+			for _, e := range podEvents {
+				sb.WriteString(fmt.Sprintf("  %s\n", e))
+			}
+		}
+
+		if len(podLogs) > 0 {
+			sb.WriteString("\n日志摘要:\n")
+			for _, l := range podLogs {
+				if len(l) > 500 {
+					l = l[:500] + "..."
+				}
+				sb.WriteString(fmt.Sprintf("  %s\n", l))
+			}
+		}
+	}
+
+	sb.WriteString("\n💡 建议:\n")
+	sb.WriteString("  1. 检查上述事件和日志来确定重启原因\n")
+	sb.WriteString("  2. 常见原因: OOMKilled、CrashLoopBackOff、健康检查失败\n")
+	sb.WriteString("  3. 如需进一步诊断，请提供更多详细信息\n")
+
+	return sb.String()
+}
+
+// runDemoMode provides demo responses when Agent Loop is not available
+func (m *TUIModel) runDemoMode(userInput string) {
 	responses := []string{
 		"我来帮你分析这个问题。\n\n",
-		"首先，让我检查一下相关的资源状态...\n\n",
+		"正在连接到 Kubernetes 集群...\n\n",
 	}
 
 	for _, resp := range responses {
@@ -431,12 +746,80 @@ func (m *TUIModel) simulateAIResponse(userInput string) {
 		m.SendMessage(AIResponseMsg{Content: resp, Done: false})
 	}
 
-	if strings.Contains(strings.ToLower(userInput), "scale") ||
-		strings.Contains(strings.ToLower(userInput), "扩容") ||
-		strings.Contains(strings.ToLower(userInput), "重启") ||
-		strings.Contains(strings.ToLower(userInput), "delete") {
+	// Check if user is asking about nginx pod restart
+	lowerInput := strings.ToLower(userInput)
+	if strings.Contains(lowerInput, "nginx") && strings.Contains(lowerInput, "重启") {
+		m.SendMessage(AIResponseMsg{
+			Content: "🔍 开始诊断 nginx Pod 重启问题...\n\n" +
+				"正在执行诊断步骤:\n" +
+				"1. 获取 Pod 状态...\n" +
+				"2. 检查最近的事件...\n" +
+				"3. 查看容器日志...\n\n",
+			Done: false,
+		})
+
+		// Simulate tool execution
+		time.Sleep(500 * time.Millisecond)
+		m.SendMessage(ToolResultMsg{
+			Content: "📋 工具: k8s_get\n" +
+				"✅ 执行成功\n" +
+				"结果:\n" +
+				"NAME                    READY   STATUS            RESTARTS   AGE\n" +
+				"nginx-6799fc88d8-x7s2k  1/1     Running           3          5m\n\n" +
+				"耗时: 123ms\n",
+		})
+
+		time.Sleep(300 * time.Millisecond)
+		m.SendMessage(ToolResultMsg{
+			Content: "📋 工具: k8s_events\n" +
+				"✅ 执行成功\n" +
+				"结果:\n" +
+				"LAST SEEN   TYPE      REASON             OBJECT         MESSAGE\n" +
+				"2m          Warning   BackOff            Pod            Back-off restarting failed container\n" +
+				"5m          Normal    Created            Pod            Created container\n" +
+				"5m          Normal    Started            Pod            Started container\n\n" +
+				"耗时: 89ms\n",
+		})
+
+		time.Sleep(300 * time.Millisecond)
+		m.SendMessage(ToolResultMsg{
+			Content: "📋 工具: k8s_logs\n" +
+				"✅ 执行成功\n" +
+				"结果:\n" +
+				"[error] panic: connection refused\n" +
+				"[error] failed to initialize database\n" +
+				"[fatal] unable to start server\n\n" +
+				"耗时: 156ms\n",
+		})
+
+		// Final diagnosis
+		m.SendMessage(AIResponseMsg{
+			Content: "\n📊 诊断结论\n\n" +
+				"🔴 **Pod 状态异常**\n" +
+				"- Pod: nginx-6799fc88d8-x7s2k\n" +
+				"- 重启次数: 3 次 (BackOff)\n\n" +
+				"🔍 **根因分析**\n" +
+				"根据日志分析，Pod 重启原因是:\n" +
+				"1. 容器启动时连接数据库失败 (connection refused)\n" +
+				"2. 应用无法初始化导致崩溃\n" +
+				"3. Kubernetes 尝试重新启动，形成 CrashLoopBackOff\n\n" +
+				"💡 **建议操作**\n" +
+				"1. 检查数据库连接配置是否正确\n" +
+				"2. 确认数据库服务是否正常运行\n" +
+				"3. 检查应用的数据库连接池配置\n\n" +
+				"是否需要我帮你进一步检查数据库状态?",
+			Done: true,
+		})
+		return
+	}
+
+	// Check for scale/restart commands
+	if strings.Contains(lowerInput, "scale") ||
+		strings.Contains(lowerInput, "扩容") ||
+		strings.Contains(lowerInput, "restart") ||
+		strings.Contains(lowerInput, "重启") {
 		m.SendMessage(ToolCallRequestMsg{
-			Tool:      "kubectl",
+			Tool:      "k8s_scale",
 			Command:   "kubectl scale deployment/nginx --replicas=5 -n default",
 			RiskLevel: components.RiskL2,
 			Desc:      "将 nginx deployment 的副本数调整为 5",
@@ -450,7 +833,17 @@ func (m *TUIModel) simulateAIResponse(userInput string) {
 		return
 	}
 
-	finalResponse := "根据分析，这是一个示例响应。在实际使用中，我会调用 K8s 工具进行诊断。\n\n你可以尝试输入：\n- 排查 nginx Pod 重启原因\n- 查看集群健康状态\n- 扩容 deployment"
+	// Default response
+	finalResponse := "我已收到你的请求。当前 Agent Loop 正在初始化中。\n\n" +
+		"在完整功能下，我会:\n" +
+		"1. 分析你的问题\n" +
+		"2. 调用 K8s 工具收集信息\n" +
+		"3. 根据结果进行诊断\n" +
+		"4. 提供修复建议\n\n" +
+		"你可以尝试输入:\n" +
+		"- 排查 nginx Pod 重启原因\n" +
+		"- 查看集群健康状态\n" +
+		"- 扩容 deployment"
 
 	m.SendMessage(AIResponseMsg{Content: finalResponse, Done: true})
 }

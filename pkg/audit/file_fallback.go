@@ -5,8 +5,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
+
+	"golang.org/x/sys/unix"
 
 	"github.com/lingshu/lingshu/pkg/logger"
 )
@@ -81,8 +84,20 @@ func (fb *FileFallback) openLatestFile() error {
 	}
 
 	latestFile := matches[len(matches)-1]
+
+	// Clean and validate path to prevent path traversal
+	latestFile = filepath.Clean(latestFile)
+	if !strings.HasPrefix(latestFile, fb.dir) {
+		return fb.createNewFile()
+	}
+
 	info, err := os.Stat(latestFile)
 	if err != nil {
+		return fb.createNewFile()
+	}
+
+	// Check if it's a symlink (security check)
+	if info.Mode()&os.ModeSymlink != 0 {
 		return fb.createNewFile()
 	}
 
@@ -90,7 +105,8 @@ func (fb *FileFallback) openLatestFile() error {
 		return fb.createNewFile()
 	}
 
-	f, err := os.OpenFile(latestFile, os.O_APPEND|os.O_WRONLY, 0644)
+	// Use O_NOFOLLOW to prevent following symlinks
+	f, err := os.OpenFile(latestFile, os.O_APPEND|os.O_WRONLY|unix.O_NOFOLLOW, 0600)
 	if err != nil {
 		return fmt.Errorf("open latest file: %w", err)
 	}
@@ -112,9 +128,17 @@ func (fb *FileFallback) createNewFile() error {
 		time.Now().Unix(),
 		fb.fileIndex,
 	)
-	filepath := filepath.Join(fb.dir, filename)
+	// Use filepath.Join and clean to ensure path safety
+	fullPath := filepath.Join(fb.dir, filename)
+	fullPath = filepath.Clean(fullPath)
 
-	f, err := os.OpenFile(filepath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	// Security: Validate path is within fb.dir to prevent path traversal
+	if !strings.HasPrefix(fullPath, fb.dir) {
+		return fmt.Errorf("path traversal attempt detected")
+	}
+
+	// Use O_NOFOLLOW to prevent following symlinks, O_EXCL to prevent overwriting
+	f, err := os.OpenFile(fullPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND|os.O_EXCL|unix.O_NOFOLLOW, 0600)
 	if err != nil {
 		return fmt.Errorf("create fallback file: %w", err)
 	}
@@ -140,7 +164,11 @@ func (fb *FileFallback) cleanupOldFiles() {
 
 	toDelete := len(matches) - fb.maxFiles
 	for i := 0; i < toDelete && i < len(matches); i++ {
-		_ = os.Remove(matches[i])
+		// Security: Validate path is within fb.dir before deleting
+		path := filepath.Clean(matches[i])
+		if strings.HasPrefix(path, fb.dir) {
+			_ = os.Remove(matches[i])
+		}
 	}
 }
 

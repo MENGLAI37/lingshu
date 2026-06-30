@@ -274,7 +274,9 @@ func TestAuditFileFallback(t *testing.T) {
 
 	fb, err := NewFileFallback(fallbackDir)
 	require.NoError(t, err)
-	defer fb.Close()
+	defer func() {
+		_ = fb.Close()
+	}()
 
 	events := []AuditEvent{
 		{
@@ -310,7 +312,9 @@ func TestAuditFileFallbackClear(t *testing.T) {
 
 	fb, err := NewFileFallback(fallbackDir)
 	require.NoError(t, err)
-	defer fb.Close()
+	defer func() {
+		_ = fb.Close()
+	}()
 
 	event := &AuditEvent{
 		Cluster:   "test-cluster",
