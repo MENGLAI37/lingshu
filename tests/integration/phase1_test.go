@@ -4,11 +4,14 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
@@ -46,7 +49,7 @@ func TestPhase1NginxPodRestartDiagnosis(t *testing.T) {
 
 	// Create namespace for test
 	nsName := "phase1-test"
-	_, err = clientset.CoreV1().Namespaces().Create(ctx, &metav1.Namespace{
+	_, err = clientset.CoreV1().Namespaces().Create(ctx, &corev1.Namespace{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: nsName,
 			Labels: map[string]string{
@@ -59,7 +62,7 @@ func TestPhase1NginxPodRestartDiagnosis(t *testing.T) {
 	}
 
 	// Create a ConfigMap that will be missing (to cause restart)
-	_, err = clientset.CoreV1().ConfigMaps(nsName).Create(ctx, &metav1.ConfigMap{
+	_, err = clientset.CoreV1().ConfigMaps(nsName).Create(ctx, &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "app-config",
 		},
@@ -113,7 +116,7 @@ func TestPhase1NginxPodRestartDiagnosis(t *testing.T) {
 	t.Logf("Found %d events for first pod", len(events.Items))
 
 	// Get pod logs
-	logs, err := clientset.CoreV1().Pods(nsName).GetLogs(pods.Items[0].Name, &metav1.PodLogOptions{
+	logs, err := clientset.CoreV1().Pods(nsName).GetLogs(pods.Items[0].Name, &corev1.PodLogOptions{
 		TailLines: int64Ptr(50),
 	}).Do(ctx).Raw()
 	if err != nil {
@@ -161,6 +164,59 @@ func TestPhase1NginxPodRestartDiagnosis(t *testing.T) {
 	t.Log("Phase 1 test completed successfully!")
 }
 
+// createNginxDeployment creates a test nginx deployment
+func createNginxDeployment(namespace string) *appsv1.Deployment {
+	replicas := int32(1)
+	return &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "nginx",
+			Namespace: namespace,
+			Labels: map[string]string{
+				"app": "nginx",
+			},
+		},
+		Spec: appsv1.DeploymentSpec{
+			Replicas: &replicas,
+			Selector: &metav1.LabelSelector{
+				MatchLabels: map[string]string{
+					"app": "nginx",
+				},
+			},
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{
+					Labels: map[string]string{
+						"app": "nginx",
+					},
+				},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{
+							Name:  "nginx",
+							Image: "nginx:alpine",
+							Ports: []corev1.ContainerPort{
+								{ContainerPort: 80},
+							},
+							Env: []corev1.EnvVar{
+								{
+									Name: "DB_URL",
+									ValueFrom: &corev1.EnvVarSource{
+										ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+											LocalObjectReference: corev1.LocalObjectReference{
+												Name: "app-config",
+											},
+											Key: "database_url",
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+}
+
 // diagnosisInfo holds collected diagnostic information
 type diagnosisInfo struct {
 	podStatus string
@@ -191,7 +247,7 @@ func gatherDiagnosisInfo(ctx context.Context, clientset *kubernetes.Clientset, n
 	}
 
 	// Get logs
-	logs, err := clientset.CoreV1().Pods(namespace).GetLogs(podName, &metav1.PodLogOptions{
+	logs, err := clientset.CoreV1().Pods(namespace).GetLogs(podName, &corev1.PodLogOptions{
 		TailLines: int64Ptr(50),
 	}).Do(ctx).Raw()
 	if err == nil {
@@ -236,7 +292,7 @@ func generateRootCauseHypothesis(info diagnosisInfo) string {
 }
 
 // Helper functions
-func getRestartCount(pod metav1.Pod) int32 {
+func getRestartCount(pod corev1.Pod) int32 {
 	var restarts int32
 	for _, cs := range pod.Status.ContainerStatuses {
 		restarts += cs.RestartCount
@@ -257,20 +313,7 @@ func truncateBytes(b []byte, maxLen int) []byte {
 
 func containsAny(s string, substrs ...string) bool {
 	for _, substr := range substrs {
-		if contains(s, substr) {
-			return true
-		}
-	}
-	return false
-}
-
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsSubstr(s, substr))
-}
-
-func containsSubstr(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
+		if strings.Contains(s, substr) {
 			return true
 		}
 	}
