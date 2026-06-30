@@ -33,9 +33,9 @@ func GetLLMConfig() *LLMConfig {
 }
 
 // readConfigFile safely reads the config file after validating permissions.
-// gosec: G304: This function is designed to only read from a trusted, user-specific config path
 func readConfigFile(path string) ([]byte, error) {
 	// Open the file first to check its properties
+	// #nosec G304 -- path is validated by getConfigPath() which restricts to user home directory
 	file, err := os.Open(path)
 	if err != nil {
 		return nil, err
