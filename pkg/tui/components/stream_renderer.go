@@ -14,6 +14,7 @@ type StreamRenderer struct {
 	width     int
 	height    int
 	streaming bool
+	cursorPos int //nolint:unused
 	lines     []string
 	scrollPos int
 	maxLines  int

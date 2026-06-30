@@ -124,3 +124,7 @@ func TestConcurrentAccess(t *testing.T) {
 
 // Ensure imports are used
 var _ = time.Second
+
+func withTimeout(timeout time.Duration) time.Duration { //nolint:unused
+	return timeout
+}
