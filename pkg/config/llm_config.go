@@ -40,27 +40,32 @@ func readConfigFile(path string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer file.Close()
 
 	// Get file info to validate permissions
 	info, err := file.Stat()
 	if err != nil {
+		file.Close()
 		return nil, err
 	}
 
 	// Security check: file should not be a symlink
 	if info.Mode()&os.ModeSymlink != 0 {
+		file.Close()
 		return nil, fmt.Errorf("config file is a symlink, refusing to read: %s", path)
 	}
 
 	// Security check: validate file permissions (should be readable only by owner)
 	perm := info.Mode().Perm()
 	if perm&0077 != 0 {
+		file.Close()
 		return nil, fmt.Errorf("config file has insecure permissions %o: %s", perm, path)
 	}
 
 	// Read file contents
 	data, err := io.ReadAll(file)
+	if closeErr := file.Close(); closeErr != nil {
+		return nil, closeErr
+	}
 	if err != nil {
 		return nil, err
 	}
