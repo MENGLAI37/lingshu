@@ -9,15 +9,15 @@ import (
 )
 
 type StreamRenderer struct {
-	styles     *styles.Styles
-	content    string
-	width      int
-	height     int
-	streaming  bool
-	cursorPos  int
-	lines      []string
-	scrollPos  int
-	maxLines   int
+	styles    *styles.Styles
+	content   string
+	width     int
+	height    int
+	streaming bool
+	cursorPos int //nolint:unused
+	lines     []string
+	scrollPos int
+	maxLines  int
 }
 
 type StreamChunkMsg struct {

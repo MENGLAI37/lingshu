@@ -14,7 +14,7 @@ type MultiLineInput struct {
 	styles      *styles.Styles
 	history     []string
 	historyIdx  int
-	placeholder string
+	placeholder string //nolint:unused
 	prompt      string
 	width       int
 	height      int

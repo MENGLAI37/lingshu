@@ -82,7 +82,7 @@ func (c *ChromaDBClient) CreateCollection(ctx context.Context, collection string
 	if err != nil {
 		return NewError(ErrCodeStoreUnavailable, "chromaDB create collection failed", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
 		bodyBytes, _ := io.ReadAll(resp.Body)
@@ -104,7 +104,7 @@ func (c *ChromaDBClient) DeleteCollection(ctx context.Context, collection string
 	if err != nil {
 		return NewError(ErrCodeStoreUnavailable, "chromaDB delete collection failed", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
 		bodyBytes, _ := io.ReadAll(resp.Body)
@@ -126,7 +126,7 @@ func (c *ChromaDBClient) ListCollections(ctx context.Context) ([]string, error) 
 	if err != nil {
 		return nil, NewError(ErrCodeStoreUnavailable, "chromaDB list collections failed", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		bodyBytes, _ := io.ReadAll(resp.Body)
@@ -189,7 +189,7 @@ func (c *ChromaDBClient) AddDocuments(ctx context.Context, collection string, do
 	if err != nil {
 		return NewError(ErrCodeStoreUnavailable, "chromaDB add documents failed", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
 		bodyBytes, _ := io.ReadAll(resp.Body)
@@ -227,7 +227,7 @@ func (c *ChromaDBClient) Search(ctx context.Context, req SearchRequest) ([]Searc
 	if err != nil {
 		return nil, NewError(ErrCodeSearchFailed, "chromaDB search failed", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		bodyBytes, _ := io.ReadAll(resp.Body)

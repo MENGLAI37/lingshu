@@ -73,7 +73,7 @@ func connectPostgres(cfg *config.DBConfig) (*sqlx.DB, error) {
 	defer cancel()
 
 	if err := db.PingContext(ctx); err != nil {
-		db.Close()
+		_ = db.Close()
 		return nil, fmt.Errorf("postgres ping: %w", err)
 	}
 

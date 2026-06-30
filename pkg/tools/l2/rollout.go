@@ -196,7 +196,7 @@ func (t *RolloutTool) deploymentRolloutHistory(ctx context.Context, namespace, n
 			}
 
 			var revNum int64
-			fmt.Sscanf(revision, "%d", &revNum)
+			_, _ = fmt.Sscanf(revision, "%d", &revNum)
 
 			replicas := int32(0)
 			if rs.Spec.Replicas != nil {
@@ -257,7 +257,7 @@ func (t *RolloutTool) deploymentRolloutUndo(ctx context.Context, namespace, name
 		rs := &rsList.Items[i]
 		if rev, ok := rs.Annotations["deployment.kubernetes.io/revision"]; ok {
 			var revNum int64
-			fmt.Sscanf(rev, "%d", &revNum)
+			_, _ = fmt.Sscanf(rev, "%d", &revNum)
 			if targetRevision == 0 || revNum == targetRevision {
 				targetRS = rs
 				break

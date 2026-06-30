@@ -114,7 +114,7 @@ func (t *LogsTool) getPodLogs(ctx context.Context, namespace, podName, container
 	if err != nil {
 		return nil, fmt.Errorf("failed to get log stream for pod %s/%s: %w", namespace, podName, err)
 	}
-	defer logStream.Close()
+	defer func() { _ = logStream.Close() }()
 
 	var logsBuilder strings.Builder
 	var logLines []string
@@ -168,7 +168,7 @@ func (t *LogsTool) StreamLogs(ctx context.Context, namespace, podName, container
 	go func() {
 		defer close(logCh)
 		defer close(errCh)
-		defer logStream.Close()
+		defer func() { _ = logStream.Close() }()
 
 		reader := bufio.NewReader(logStream)
 		for {

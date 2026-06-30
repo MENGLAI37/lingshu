@@ -122,10 +122,9 @@ func TestConcurrentAccess(t *testing.T) {
 	assert.True(t, true)
 }
 
-// Helper for context with timeout
-func withTimeout(timeout time.Duration) time.Duration {
-	return timeout
-}
-
 // Ensure imports are used
 var _ = time.Second
+
+func withTimeout(timeout time.Duration) time.Duration { //nolint:unused
+	return timeout
+}

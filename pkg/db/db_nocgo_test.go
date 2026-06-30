@@ -98,6 +98,8 @@ func TestDatabaseFallbackMode(t *testing.T) {
 		t.Error("Expected DB() to return fallback connection")
 	}
 
+	mock.ExpectPing()
+
 	ctx := context.Background()
 	if err := database.PingContext(ctx); err != nil {
 		t.Errorf("PingContext failed: %v", err)
@@ -106,7 +108,7 @@ func TestDatabaseFallbackMode(t *testing.T) {
 
 // TestDatabasePrimaryMode 测试主数据库模式
 func TestDatabasePrimaryMode(t *testing.T) {
-	db, mock, err := sqlmock.New()
+	db, _, err := sqlmock.New()
 	if err != nil {
 		t.Skip("sqlmock not available, skipping")
 	}

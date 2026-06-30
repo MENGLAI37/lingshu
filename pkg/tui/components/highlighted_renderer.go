@@ -30,7 +30,7 @@ type HighlightedRenderer struct {
 	scrollPos    int
 	collapsed    map[int]bool
 	collapsible  []int
-	toggleMode   bool
+	toggleMode   bool //nolint:unused
 	selectedLine int
 	visible      bool
 	title        string

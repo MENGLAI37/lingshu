@@ -70,7 +70,7 @@ func (p *ClaudeProvider) Complete(ctx context.Context, req *CompletionRequest) (
 	if err != nil {
 		return nil, NewError(ErrCodeProviderUnavailable, "Claude request failed", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		bodyBytes, _ := io.ReadAll(resp.Body)
@@ -130,7 +130,7 @@ func (p *ClaudeProvider) Stream(ctx context.Context, req *CompletionRequest) (<-
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		bodyBytes, _ := io.ReadAll(resp.Body)
 		return nil, NewError(ErrCodeProviderUnavailable, fmt.Sprintf("Claude returned status %d: %s", resp.StatusCode, string(bodyBytes)), nil)
 	}
@@ -138,7 +138,7 @@ func (p *ClaudeProvider) Stream(ctx context.Context, req *CompletionRequest) (<-
 	ch := make(chan StreamChunk, 10)
 	go func() {
 		defer close(ch)
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 		p.readSSEStream(ctx, resp.Body, ch, req.Model)
 	}()
 
@@ -166,7 +166,7 @@ func (p *ClaudeProvider) HealthCheck(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	// Even a 400 is fine for health check - it means the API is reachable.
 	if resp.StatusCode >= 500 {

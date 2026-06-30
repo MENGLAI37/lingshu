@@ -26,7 +26,7 @@ type DefaultAgentLoop struct {
 	parser          *ToolCallParser
 	parallelExec    *ParallelExecutor
 	timeoutChecker  *TimeoutChecker
-	mu              sync.Mutex
+	mu              sync.Mutex //nolint:unused
 }
 
 // NewDefaultAgentLoop creates a new agent loop instance.
@@ -42,7 +42,7 @@ func NewDefaultAgentLoop(
 
 	promptEngine := llm.NewPromptEngine()
 	promptEngine.RegisterBuiltinTemplates()
-	promptEngine.Register("agent_system", agentSystemPrompt)
+	_ = promptEngine.Register("agent_system", agentSystemPrompt)
 
 	return &DefaultAgentLoop{
 		config:          config,
