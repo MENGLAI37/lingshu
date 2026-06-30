@@ -4,7 +4,7 @@
 
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![Go Version](https://img.shields.io/badge/go-1.22+-00ADD8.svg)](https://golang.org/)
-[![Build Status](https://github.com/lingshu/lingshu/workflows/CI/badge.svg)](https://github.com/lingshu/lingshu/actions)
+[![CI](https://github.com/MENGLAI37/lingshu/actions/workflows/ci.yaml/badge.svg)](https://github.com/MENGLAI37/lingshu/actions/workflows/ci.yaml)
 
 ## 项目概述
 
