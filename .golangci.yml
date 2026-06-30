@@ -40,7 +40,6 @@ linters:
     - goheader
     - goimports
     - lll
-    - maligned
     - misspell
     - nlreturn
     - wrapcheck
@@ -114,7 +113,6 @@ issues:
   exclude-use-default: false
   max-issues-per-linter: 0
   max-same-issues: 0
-  new-from-rev: HEAD~1
 
   exclude-rules:
     - path: '_test\.go'
