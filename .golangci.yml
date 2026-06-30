@@ -47,24 +47,24 @@ linters:
         - "-SA1019"
     revive:
       rules:
-        - blank-imports
-        - context-as-argument
-        - context-keys-type
-        - dot-imports
-        - error-return
-        - error-strings
-        - error-naming
-        - exported
-        - increment-decrement
-        - var-naming
-        - var-declaration
-        - package-comments
-        - range
-        - receiver-naming
-        - time-naming
-        - unexported-return
-        - indent-error-flow
-        - errorf
+        - name: blank-imports
+        - name: context-as-argument
+        - name: context-keys-type
+        - name: dot-imports
+        - name: error-return
+        - name: error-strings
+        - name: error-naming
+        - name: exported
+        - name: increment-decrement
+        - name: var-naming
+        - name: var-declaration
+        - name: package-comments
+        - name: range
+        - name: receiver-naming
+        - name: time-naming
+        - name: unexported-return
+        - name: indent-error-flow
+        - name: errorf
     dupl:
       threshold: 150
     goconst:
