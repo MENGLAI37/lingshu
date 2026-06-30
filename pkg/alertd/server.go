@@ -41,10 +41,6 @@ type Server struct {
 	wg           sync.WaitGroup
 	running      bool
 	mu           sync.Mutex
-
-	totalAlerts  int64
-	processedAlerts int64
-	failedAlerts int64
 }
 
 var (
@@ -122,7 +118,9 @@ func (s *Server) handleGenericAlert(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, http.StatusBadRequest, "failed to read request body")
 		return
 	}
-	defer r.Body.Close()
+	defer func() {
+		_ = r.Body.Close()
+	}()
 
 	var webhook GenericAlertWebhook
 	if err := json.Unmarshal(body, &webhook); err != nil {
@@ -147,7 +145,9 @@ func (s *Server) handleAlertManager(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, http.StatusBadRequest, "failed to read request body")
 		return
 	}
-	defer r.Body.Close()
+	defer func() {
+		_ = r.Body.Close()
+	}()
 
 	var webhook AlertManagerWebhook
 	if err := json.Unmarshal(body, &webhook); err != nil {
@@ -174,7 +174,9 @@ func (s *Server) handlePagerDuty(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, http.StatusBadRequest, "failed to read request body")
 		return
 	}
-	defer r.Body.Close()
+	defer func() {
+		_ = r.Body.Close()
+	}()
 
 	var webhook PagerDutyWebhook
 	if err := json.Unmarshal(body, &webhook); err != nil {

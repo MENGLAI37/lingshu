@@ -179,12 +179,13 @@ func (m *Manager) flushRemaining() {
 		select {
 		case event := <-m.eventQueue:
 			batch := []AuditEvent{event}
+		outer:
 			for i := 0; i < m.batchSize-1; i++ {
 				select {
 				case e := <-m.eventQueue:
 					batch = append(batch, e)
 				default:
-					break
+					break outer
 				}
 			}
 			m.flushBatch(batch)
@@ -463,17 +464,14 @@ func (m *Manager) GetStats(ctx context.Context, startTime, endTime *time.Time) (
 
 	whereClauses := []string{}
 	args := []interface{}{}
-	argIdx := 1
 
 	if startTime != nil {
-		whereClauses = append(whereClauses, fmt.Sprintf("created_at >= $%d", argIdx))
+		whereClauses = append(whereClauses, fmt.Sprintf("created_at >= $%d", len(args)+1))
 		args = append(args, *startTime)
-		argIdx++
 	}
 	if endTime != nil {
-		whereClauses = append(whereClauses, fmt.Sprintf("created_at <= $%d", argIdx))
+		whereClauses = append(whereClauses, fmt.Sprintf("created_at <= $%d", len(args)+1))
 		args = append(args, *endTime)
-		argIdx++
 	}
 
 	whereSQL := ""

@@ -50,7 +50,6 @@ type TUIModel struct {
 	cluster     string
 	namespace   string
 	environment string
-	sessionID   string
 
 	aiThinking bool
 	streaming  bool
@@ -61,14 +60,6 @@ type TUIModel struct {
 	// Agent Loop integration
 	agentLoop *agent.DefaultAgentLoop
 	k8sClient *k8s.ClientManager
-	pendingToolCall *PendingToolCall
-}
-
-// PendingToolCall holds a tool call awaiting user confirmation
-type PendingToolCall struct {
-	ToolName  string
-	Arguments map[string]any
-	Command   string
 }
 
 type AIResponseMsg struct {
@@ -161,18 +152,18 @@ func (m *TUIModel) initAgentLoop() {
 			fmt.Printf("Warning: Failed to get clientset: %v\n", err)
 		} else {
 			// Register L0 tools (read-only)
-			toolRegistry.RegisterTool(l0.NewGetTool(clientset))
-			toolRegistry.RegisterTool(l0.NewDescribeTool(clientset))
-			toolRegistry.RegisterTool(l0.NewLogsTool(clientset))
-			toolRegistry.RegisterTool(l0.NewEventsTool(clientset))
+			_ = toolRegistry.RegisterTool(l0.NewGetTool(clientset))
+			_ = toolRegistry.RegisterTool(l0.NewDescribeTool(clientset))
+			_ = toolRegistry.RegisterTool(l0.NewLogsTool(clientset))
+			_ = toolRegistry.RegisterTool(l0.NewEventsTool(clientset))
 			// Register L1 tools (safe write)
-			toolRegistry.RegisterTool(l1.NewTopTool(clientset, nil))
-			toolRegistry.RegisterTool(l1.NewStatusTool(clientset))
+			_ = toolRegistry.RegisterTool(l1.NewTopTool(clientset, nil))
+			_ = toolRegistry.RegisterTool(l1.NewStatusTool(clientset))
 			// Register L2 tools (moderate risk)
-			toolRegistry.RegisterTool(l2.NewScaleTool(clientset))
-			toolRegistry.RegisterTool(l2.NewRestartTool(clientset))
-			toolRegistry.RegisterTool(l2.NewRolloutTool(clientset))
-			toolRegistry.RegisterTool(l2.NewPatchTool(clientset))
+			_ = toolRegistry.RegisterTool(l2.NewScaleTool(clientset))
+			_ = toolRegistry.RegisterTool(l2.NewRestartTool(clientset))
+			_ = toolRegistry.RegisterTool(l2.NewRolloutTool(clientset))
+			_ = toolRegistry.RegisterTool(l2.NewPatchTool(clientset))
 		}
 	}
 
@@ -603,10 +594,10 @@ func (m *TUIModel) runAgentLoop(userInput string) {
 				m.SendMessage(AIResponseMsg{Content: thought + "\n\n", Done: false})
 			}
 		case "state_change":
-			state := event.State
-			if state == agent.StateExecuting {
+			switch event.State {
+			case agent.StateExecuting:
 				m.SendMessage(AIResponseMsg{Content: "正在执行工具...\n\n", Done: false})
-			} else if state == agent.StateObserving {
+			case agent.StateObserving:
 				m.SendMessage(AIResponseMsg{Content: "分析结果...\n\n", Done: false})
 			}
 		case "tool_result":
