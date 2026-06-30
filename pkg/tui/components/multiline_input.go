@@ -10,15 +10,14 @@ import (
 )
 
 type MultiLineInput struct {
-	textarea    textarea.Model
-	styles      *styles.Styles
-	history     []string
-	historyIdx  int
-	placeholder string
-	prompt      string
-	width       int
-	height      int
-	focused     bool
+	textarea   textarea.Model
+	styles     *styles.Styles
+	history    []string
+	historyIdx int
+	prompt     string
+	width      int
+	height     int
+	focused    bool
 }
 
 type InputSubmittedMsg struct {

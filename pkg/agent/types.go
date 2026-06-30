@@ -39,13 +39,6 @@ const (
 
 // AgentLoop represents the core reasoning loop.
 type AgentLoop struct {
-	state          LoopState
-	currentPhase   LoopPhase
-	iterationCount int
-	maxIterations  int
-	startTime      time.Time
-	toolResults    []ToolExecutionResult
-	thinkingHistory []ThinkingStep
 }
 
 // ThinkingStep represents a single thinking step in the loop.

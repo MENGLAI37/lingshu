@@ -38,7 +38,6 @@ type TUIModel struct {
 	cluster     string
 	namespace   string
 	environment string
-	sessionID   string
 
 	aiThinking bool
 	streaming  bool

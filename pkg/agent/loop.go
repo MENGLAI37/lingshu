@@ -26,7 +26,6 @@ type DefaultAgentLoop struct {
 	parser          *ToolCallParser
 	parallelExec    *ParallelExecutor
 	timeoutChecker  *TimeoutChecker
-	mu              sync.Mutex
 }
 
 // NewDefaultAgentLoop creates a new agent loop instance.

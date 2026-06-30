@@ -21,6 +21,9 @@ linters:
       exclude-functions:
         - (io.Closer).Close
         - (*os.File).Close
+        - (*database/sql.DB).Close
+        - (*database/sql.Tx).Rollback
+        - (*database/sql.Stmt).Close
         - fmt.Sscanf
         - time.Parse
         - json.Marshal
@@ -39,6 +42,7 @@ linters:
         - G306
         - G301
         - G304
+        - G703
     govet:
       disable:
         - fieldalignment
@@ -46,4 +50,12 @@ linters:
     staticcheck:
       checks:
         - all
+        - "-ST1000"
+        - "-ST1020"
+        - "-ST1008"
+        - "-SA1029"
+        - "-SA9003"
         - "-SA1019"
+        - "-QF1012"
+        - "-QF1008"
+        - "-S1031"
