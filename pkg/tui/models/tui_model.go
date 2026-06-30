@@ -62,6 +62,11 @@ type ToolCallRequestMsg struct {
 	Preflight []components.PreflightCheck
 }
 
+type ToolResultMsg struct {
+	Content string
+	Error   error
+}
+
 type ShowHighlightMsg struct {
 	Content     string
 	ContentType components.ContentType
@@ -185,6 +190,10 @@ func (m *TUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case ToolCallRequestMsg:
 		m.handleToolCallRequest(msg)
+		return m, nil
+
+	case ToolResultMsg:
+		m.handleToolResult(msg)
 		return m, nil
 
 	case ShowHighlightMsg:
@@ -494,11 +503,16 @@ func (m *TUIModel) handleConfirmApproved(command string) {
 
 	go func() {
 		time.Sleep(1 * time.Second)
-		m.SendMessage(AIResponseMsg{
+		m.SendMessage(ToolResultMsg{
 			Content: "命令执行成功！Deployment/nginx 已扩容到 5 个副本。",
-			Done:    true,
 		})
 	}()
+}
+
+func (m *TUIModel) handleToolResult(msg ToolResultMsg) {
+	m.chatView.UpdateLastToolMessage(msg.Content)
+	m.aiThinking = false
+	m.streaming = false
 }
 
 func (m *TUIModel) handleConfirmCancelled() {
