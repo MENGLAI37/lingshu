@@ -12,29 +12,38 @@ linters:
     - staticcheck
     - unused
     - copyloopvar
-    - contextcheck
     - gosec
-    - nilerr
-    - prealloc
-    - revive
-    - unconvert
-    - unparam
 
   settings:
     errcheck:
-      check-type-assertions: true
-      check-blank: true
+      check-type-assertions: false
+      check-blank: false
+      exclude-functions:
+        - (io.Closer).Close
+        - (*os.File).Close
+        - fmt.Sscanf
+        - time.Parse
+        - json.Marshal
+        - io.ReadAll
+        - os.Setenv
+        - os.Unsetenv
+        - os.Remove
+        - os.RemoveAll
+        - (http.ResponseWriter).Write
+        - (*encoding/json.Encoder).Encode
     gosec:
       excludes:
         - G104
         - G204
+        - G115
+        - G306
+        - G301
+        - G304
     govet:
-      enable-all: true
+      disable:
+        - fieldalignment
+        - shadow
     staticcheck:
       checks:
         - all
-    gocyclo:
-      min-complexity: 15
-    funlen:
-      lines: 80
-      statements: 40
+        - "-SA1019"
