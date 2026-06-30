@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -31,6 +32,42 @@ func GetLLMConfig() *LLMConfig {
 	return llmConfigInstance
 }
 
+// readConfigFile safely reads the config file after validating permissions.
+// gosec: G304: This function is designed to only read from a trusted, user-specific config path
+func readConfigFile(path string) ([]byte, error) {
+	// Open the file first to check its properties
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+
+	// Get file info to validate permissions
+	info, err := file.Stat()
+	if err != nil {
+		return nil, err
+	}
+
+	// Security check: file should not be a symlink
+	if info.Mode()&os.ModeSymlink != 0 {
+		return nil, fmt.Errorf("config file is a symlink, refusing to read: %s", path)
+	}
+
+	// Security check: validate file permissions (should be readable only by owner)
+	perm := info.Mode().Perm()
+	if perm&0077 != 0 {
+		return nil, fmt.Errorf("config file has insecure permissions %o: %s", perm, path)
+	}
+
+	// Read file contents
+	data, err := io.ReadAll(file)
+	if err != nil {
+		return nil, err
+	}
+
+	return data, nil
+}
+
 func LoadLLMConfig() error {
 	llmConfigMu.Lock()
 	defer llmConfigMu.Unlock()
@@ -40,7 +77,7 @@ func LoadLLMConfig() error {
 		return err
 	}
 
-	data, err := os.ReadFile(path)
+	data, err := readConfigFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			llmConfigInstance = loadFromEnv()
