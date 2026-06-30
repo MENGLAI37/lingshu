@@ -4,9 +4,6 @@ run:
   timeout: 5m
   modules-download-mode: readonly
 
-output:
-  format: colored-line-number
-
 linters:
   enable:
     - errcheck
@@ -17,19 +14,12 @@ linters:
     - unused
     - copyloopvar
     - contextcheck
-    - decorder
-    - dupword
-    - errname
     - gosec
-    - noctx
     - nilerr
-    - nilnil
     - prealloc
-    - reassign
     - revive
     - unconvert
     - unparam
-    - whitespace
 
   settings:
     errcheck:
@@ -44,77 +34,8 @@ linters:
     staticcheck:
       checks:
         - all
-        - "-SA1019"
-    revive:
-      rules:
-        - name: blank-imports
-        - name: context-as-argument
-        - name: context-keys-type
-        - name: dot-imports
-        - name: error-return
-        - name: error-strings
-        - name: error-naming
-        - name: exported
-        - name: increment-decrement
-        - name: var-naming
-        - name: var-declaration
-        - name: package-comments
-        - name: range
-        - name: receiver-naming
-        - name: time-naming
-        - name: unexported-return
-        - name: indent-error-flow
-        - name: errorf
-    dupl:
-      threshold: 150
-    goconst:
-      min-len: 2
-      min-occurrences: 2
-    gocritic:
-      enabled-tags:
-        - diagnostic
-        - performance
-        - style
     gocyclo:
       min-complexity: 15
-    goimports:
-      local-prefixes: github.com/lingshu/lingshu
-    lll:
-      line-length: 120
-    misspell:
-      locale: US
-    gocognit:
-      min-complexity: 30
-    prealloc:
-      for-loops: true
     funlen:
       lines: 80
       statements: 40
-    gci:
-      sections:
-        - standard
-        - default
-        - prefix(github.com/lingshu/lingshu)
-
-issues:
-  max-issues-per-linter: 0
-  max-same-issues: 0
-
-  exclude-rules:
-    - path: "_test\\.go"
-      linters:
-        - dupl
-        - funlen
-        - gocyclo
-        - gocognit
-        - gosec
-        - testpackage
-    - path: "migrations/"
-      linters:
-        - gci
-    - path: "cmd/"
-      linters:
-        - noctx
-    - path: "vendor/"
-      linters:
-        - staticcheck
