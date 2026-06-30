@@ -270,6 +270,22 @@ func (c *ChatView) FinishStreaming() {
 	}
 }
 
+func (c *ChatView) UpdateLastToolMessage(content string) {
+	for i := len(c.messages) - 1; i >= 0; i-- {
+		if c.messages[i].Role == RoleTool {
+			c.messages[i].Content = content
+			c.messages[i].Streaming = false
+			c.scrollToBottom()
+			return
+		}
+	}
+	c.AddMessage(ChatMessage{
+		Role:      RoleTool,
+		Content:   content,
+		Timestamp: time.Now(),
+	})
+}
+
 func (c *ChatView) scrollToBottom() {
 	totalLines := c.countTotalLines()
 	if totalLines > c.height {
