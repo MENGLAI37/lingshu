@@ -3,14 +3,9 @@ version: "2"
 run:
   timeout: 5m
   modules-download-mode: readonly
-  issues-exit-code: 1
 
 output:
-  formats:
-    colored-line-number:
-      path: stdout
-  print-issued-lines: true
-  print-linter-name: true
+  format: colored-line-number
 
 linters:
   enable:
@@ -36,89 +31,77 @@ linters:
     - unparam
     - whitespace
 
-  disable:
-    - exhaustruct
-    - exhaustive
-    - gochecknaming
-    - goheader
-    - goimports
-    - lll
-    - misspell
-    - nlreturn
-    - wrapcheck
-
-linters-settings:
-  errcheck:
-    check-type-assertions: true
-    check-blank: true
-  gosec:
-    excludes:
-      - G104
-      - G204
-  govet:
-    enable-all: true
-  staticcheck:
-    checks:
-      - all
-      - -SA1019
-  revive:
-    rules:
-      - name: blank-imports
-      - name: context-as-argument
-      - name: context-keys-type
-      - name: dot-imports
-      - name: error-return
-      - name: error-strings
-      - name: error-naming
-      - name: exported
-      - name: increment-decrement
-      - name: var-naming
-      - name: var-declaration
-      - name: package-comments
-      - name: range
-      - name: receiver-naming
-      - name: time-naming
-      - name: unexported-return
-      - name: indent-error-flow
-      - name: errorf
-  dupl:
-    threshold: 150
-  goconst:
-    min-len: 2
-    min-occurrences: 2
-  gocritic:
-    enabled-tags:
-      - diagnostic
-      - performance
-      - style
-  gocyclo:
-    min-complexity: 15
-  goimports:
-    local-prefixes: github.com/lingshu/lingshu
-  lll:
-    line-length: 120
-  misspell:
-    locale: US
-  gocognit:
-    min-complexity: 30
-  prealloc:
-    for-loops: true
-  funlen:
-    lines: 80
-    statements: 40
-  gci:
-    sections:
-      - standard
-      - default
-      - prefix(github.com/lingshu/lingshu)
+  settings:
+    errcheck:
+      check-type-assertions: true
+      check-blank: true
+    gosec:
+      excludes:
+        - G104
+        - G204
+    govet:
+      enable-all: true
+    staticcheck:
+      checks:
+        - all
+        - "-SA1019"
+    revive:
+      rules:
+        - blank-imports
+        - context-as-argument
+        - context-keys-type
+        - dot-imports
+        - error-return
+        - error-strings
+        - error-naming
+        - exported
+        - increment-decrement
+        - var-naming
+        - var-declaration
+        - package-comments
+        - range
+        - receiver-naming
+        - time-naming
+        - unexported-return
+        - indent-error-flow
+        - errorf
+    dupl:
+      threshold: 150
+    goconst:
+      min-len: 2
+      min-occurrences: 2
+    gocritic:
+      enabled-tags:
+        - diagnostic
+        - performance
+        - style
+    gocyclo:
+      min-complexity: 15
+    goimports:
+      local-prefixes: github.com/lingshu/lingshu
+    lll:
+      line-length: 120
+    misspell:
+      locale: US
+    gocognit:
+      min-complexity: 30
+    prealloc:
+      for-loops: true
+    funlen:
+      lines: 80
+      statements: 40
+    gci:
+      sections:
+        - standard
+        - default
+        - prefix(github.com/lingshu/lingshu)
 
 issues:
-  exclude-use-default: false
   max-issues-per-linter: 0
   max-same-issues: 0
 
   exclude-rules:
-    - path: '_test\.go'
+    - path: "_test\\.go"
       linters:
         - dupl
         - funlen
@@ -126,12 +109,12 @@ issues:
         - gocognit
         - gosec
         - testpackage
-    - path: 'migrations/'
+    - path: "migrations/"
       linters:
         - gci
-    - path: 'cmd/'
+    - path: "cmd/"
       linters:
         - noctx
-    - path: 'vendor/'
+    - path: "vendor/"
       linters:
         - staticcheck
