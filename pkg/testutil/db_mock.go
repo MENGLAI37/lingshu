@@ -18,7 +18,7 @@ func NewSQLMock(t *testing.T) (*sql.DB, sqlmock.Sqlmock, func()) {
 	require.NoError(t, err, "failed to create sqlmock")
 	
 	cleanup := func() {
-		db.Close()
+		_ = db.Close()
 	}
 	
 	return db, mock, cleanup

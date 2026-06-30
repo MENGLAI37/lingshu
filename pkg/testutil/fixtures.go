@@ -19,7 +19,7 @@ func TempDir(t *testing.T) (string, func()) {
 	require.NoError(t, err)
 	
 	cleanup := func() {
-		os.RemoveAll(dir)
+		_ = os.RemoveAll(dir)
 	}
 	
 	return dir, cleanup
@@ -30,10 +30,10 @@ func TempFile(t *testing.T, pattern string) (string, func()) {
 	t.Helper()
 	f, err := os.CreateTemp("", pattern)
 	require.NoError(t, err)
-	f.Close()
+	_ = f.Close()
 	
 	cleanup := func() {
-		os.Remove(f.Name())
+		_ = os.Remove(f.Name())
 	}
 	
 	return f.Name(), cleanup
@@ -139,7 +139,7 @@ func SetEnv(t *testing.T, key, value string) {
 // UnsetEnv unsets an environment variable for testing.
 func UnsetEnv(t *testing.T, key string) {
 	t.Helper()
-	os.Unsetenv(key)
+	_ = os.Unsetenv(key)
 }
 
 // ===========================================================================

@@ -29,8 +29,8 @@ func TestLoadConfig(t *testing.T) {
 
 func TestEnvOverride(t *testing.T) {
 	resetConfig()
-	os.Setenv("OPSAI_SERVER_PORT", "9090")
-	defer os.Unsetenv("OPSAI_SERVER_PORT")
+	_ = os.Setenv("OPSAI_SERVER_PORT", "9090")
+	defer func() { _ = os.Unsetenv("OPSAI_SERVER_PORT") }()
 
 	cfg, err := Load("")
 	if err != nil {

@@ -202,6 +202,6 @@ func bumpVersion(v string) string {
 	}
 	// Increment patch
 	var patch int
-	fmt.Sscanf(parts[2], "%d", &patch)
+	_, _ = fmt.Sscanf(parts[2], "%d", &patch)
 	return fmt.Sprintf("%s.%s.%d", parts[0], parts[1], patch+1)
 }

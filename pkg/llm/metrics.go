@@ -148,7 +148,7 @@ func (m *DefaultMetricsCollector) Flush() error {
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 
 	stmt, err := tx.Prepare(`
 		INSERT INTO usage_records (
@@ -159,7 +159,7 @@ func (m *DefaultMetricsCollector) Flush() error {
 	if err != nil {
 		return err
 	}
-	defer stmt.Close()
+	defer func() { _ = stmt.Close() }()
 
 	for _, r := range batch {
 		_, err := stmt.Exec(
