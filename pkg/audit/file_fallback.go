@@ -9,6 +9,8 @@ import (
 	"sync"
 	"time"
 
+	"golang.org/x/sys/unix"
+
 	"github.com/lingshu/lingshu/pkg/logger"
 )
 
@@ -83,8 +85,9 @@ func (fb *FileFallback) openLatestFile() error {
 
 	latestFile := matches[len(matches)-1]
 
-	// Security: Validate path is within fb.dir to prevent path traversal
-	if !fb.isPathSafe(latestFile) {
+	// Clean and validate path to prevent path traversal
+	latestFile = filepath.Clean(latestFile)
+	if !strings.HasPrefix(latestFile, fb.dir) {
 		return fb.createNewFile()
 	}
 
@@ -93,11 +96,17 @@ func (fb *FileFallback) openLatestFile() error {
 		return fb.createNewFile()
 	}
 
+	// Check if it's a symlink (security check)
+	if info.Mode()&os.ModeSymlink != 0 {
+		return fb.createNewFile()
+	}
+
 	if info.Size() >= fb.maxFileSize {
 		return fb.createNewFile()
 	}
 
-	f, err := os.OpenFile(latestFile, os.O_APPEND|os.O_WRONLY, 0600)
+	// Use O_NOFOLLOW to prevent following symlinks
+	f, err := os.OpenFile(latestFile, os.O_APPEND|os.O_WRONLY|unix.O_NOFOLLOW, 0600)
 	if err != nil {
 		return fmt.Errorf("open latest file: %w", err)
 	}
@@ -124,11 +133,12 @@ func (fb *FileFallback) createNewFile() error {
 	fullPath = filepath.Clean(fullPath)
 
 	// Security: Validate path is within fb.dir to prevent path traversal
-	if !fb.isPathSafe(fullPath) {
+	if !strings.HasPrefix(fullPath, fb.dir) {
 		return fmt.Errorf("path traversal attempt detected")
 	}
 
-	f, err := os.OpenFile(fullPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
+	// Use O_NOFOLLOW to prevent following symlinks, O_EXCL to prevent overwriting
+	f, err := os.OpenFile(fullPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND|os.O_EXCL|unix.O_NOFOLLOW, 0600)
 	if err != nil {
 		return fmt.Errorf("create fallback file: %w", err)
 	}
@@ -140,29 +150,6 @@ func (fb *FileFallback) createNewFile() error {
 	fb.cleanupOldFiles()
 
 	return nil
-}
-
-// isPathSafe validates that the given path is within fb.dir
-// This prevents path traversal attacks via symlinks or malicious input
-func (fb *FileFallback) isPathSafe(path string) bool {
-	// Clean and resolve the path
-	cleanPath := filepath.Clean(path)
-
-	// Get absolute paths for comparison
-	absDir, err := filepath.Abs(fb.dir)
-	if err != nil {
-		return false
-	}
-	absPath, err := filepath.Abs(cleanPath)
-	if err != nil {
-		return false
-	}
-
-	// Ensure the path is within fb.dir
-	// Use strings.HasPrefix with a trailing slash to prevent false positives
-	// e.g., "/dir" should not match "/dirother"
-	absDir = absDir + string(filepath.Separator)
-	return strings.HasPrefix(absPath, absDir)
 }
 
 func (fb *FileFallback) cleanupOldFiles() {
@@ -178,7 +165,8 @@ func (fb *FileFallback) cleanupOldFiles() {
 	toDelete := len(matches) - fb.maxFiles
 	for i := 0; i < toDelete && i < len(matches); i++ {
 		// Security: Validate path is within fb.dir before deleting
-		if fb.isPathSafe(matches[i]) {
+		path := filepath.Clean(matches[i])
+		if strings.HasPrefix(path, fb.dir) {
 			_ = os.Remove(matches[i])
 		}
 	}
