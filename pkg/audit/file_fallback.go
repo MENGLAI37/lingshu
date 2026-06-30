@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -81,6 +82,12 @@ func (fb *FileFallback) openLatestFile() error {
 	}
 
 	latestFile := matches[len(matches)-1]
+
+	// Security: Validate path is within fb.dir to prevent path traversal
+	if !fb.isPathSafe(latestFile) {
+		return fb.createNewFile()
+	}
+
 	info, err := os.Stat(latestFile)
 	if err != nil {
 		return fb.createNewFile()
@@ -112,9 +119,16 @@ func (fb *FileFallback) createNewFile() error {
 		time.Now().Unix(),
 		fb.fileIndex,
 	)
-	filepath := filepath.Join(fb.dir, filename)
+	// Use filepath.Join and clean to ensure path safety
+	fullPath := filepath.Join(fb.dir, filename)
+	fullPath = filepath.Clean(fullPath)
 
-	f, err := os.OpenFile(filepath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
+	// Security: Validate path is within fb.dir to prevent path traversal
+	if !fb.isPathSafe(fullPath) {
+		return fmt.Errorf("path traversal attempt detected")
+	}
+
+	f, err := os.OpenFile(fullPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
 	if err != nil {
 		return fmt.Errorf("create fallback file: %w", err)
 	}
@@ -126,6 +140,29 @@ func (fb *FileFallback) createNewFile() error {
 	fb.cleanupOldFiles()
 
 	return nil
+}
+
+// isPathSafe validates that the given path is within fb.dir
+// This prevents path traversal attacks via symlinks or malicious input
+func (fb *FileFallback) isPathSafe(path string) bool {
+	// Clean and resolve the path
+	cleanPath := filepath.Clean(path)
+
+	// Get absolute paths for comparison
+	absDir, err := filepath.Abs(fb.dir)
+	if err != nil {
+		return false
+	}
+	absPath, err := filepath.Abs(cleanPath)
+	if err != nil {
+		return false
+	}
+
+	// Ensure the path is within fb.dir
+	// Use strings.HasPrefix with a trailing slash to prevent false positives
+	// e.g., "/dir" should not match "/dirother"
+	absDir = absDir + string(filepath.Separator)
+	return strings.HasPrefix(absPath, absDir)
 }
 
 func (fb *FileFallback) cleanupOldFiles() {
@@ -140,7 +177,10 @@ func (fb *FileFallback) cleanupOldFiles() {
 
 	toDelete := len(matches) - fb.maxFiles
 	for i := 0; i < toDelete && i < len(matches); i++ {
-		_ = os.Remove(matches[i])
+		// Security: Validate path is within fb.dir before deleting
+		if fb.isPathSafe(matches[i]) {
+			_ = os.Remove(matches[i])
+		}
 	}
 }
 
