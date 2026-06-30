@@ -261,12 +261,6 @@ helm install lingshu lingshu/lingshu \
 | v2.1 | 全栈深度 - GitOps/多集群 | 📋 规划中 |
 | v2.2 | 安全灾备 - 幂等性/审计链 | 📋 规划中 |
 
-## 文档
-
-- [研发任务拆解](docs/lingshu-task-breakdown-final.md)
-- [PRD v2.3](docs/ops-ai-agent-prd-v2.3.md)
-- [系统设计文档](docs/ops-ai-agent-system-design.md)
-
 ## 贡献
 
 欢迎提交 Issue 和 Pull Request！
