@@ -63,7 +63,7 @@ func Init(cfg *config.RedisConfig) (*Cache, error) {
 	defer cancel()
 
 	if err = client.Ping(ctx).Err(); err != nil {
-		client.Close()
+		_ = client.Close()
 		return nil, fmt.Errorf("redis ping: %w", err)
 	}
 

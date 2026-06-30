@@ -35,7 +35,7 @@ func TestSQLiteFallback(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to init database with SQLite fallback: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	if !db.IsFallback() {
 		t.Error("Expected to be using fallback mode (SQLite)")
@@ -108,7 +108,7 @@ func TestSQLiteFallbackWithPostgresFailure(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SQLite fallback should succeed even when PostgreSQL is unavailable: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	if !db.IsFallback() {
 		t.Error("Expected to be in fallback mode (using SQLite after PostgreSQL failure)")

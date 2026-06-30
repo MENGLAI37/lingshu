@@ -657,7 +657,7 @@ func TestNoopMetricsCollector(t *testing.T) {
 
 func TestDefaultMetricsCollector_RecordUsage(t *testing.T) {
 	m := NewMetricsCollector(nil)
-	defer m.Close()
+	defer func() { _ = m.Close() }()
 
 	ctx := context.WithValue(context.Background(), "session_id", "sess-123")
 	ctx = context.WithValue(ctx, "user_id", "user-456")
@@ -672,7 +672,7 @@ func TestDefaultMetricsCollector_RecordUsage(t *testing.T) {
 
 func TestDefaultMetricsCollector_Flush_Empty(t *testing.T) {
 	m := NewMetricsCollector(nil)
-	defer m.Close()
+	defer func() { _ = m.Close() }()
 
 	err := m.Flush()
 	require.NoError(t, err)
@@ -680,7 +680,7 @@ func TestDefaultMetricsCollector_Flush_Empty(t *testing.T) {
 
 func TestDefaultMetricsCollector_GetUsageStats_NoDB(t *testing.T) {
 	m := NewMetricsCollector(nil)
-	defer m.Close()
+	defer func() { _ = m.Close() }()
 
 	_, err := m.GetUsageStats(context.Background(), "sess-123")
 	require.Error(t, err)

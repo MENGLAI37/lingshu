@@ -41,7 +41,7 @@ func NewDefaultAgentLoop(
 
 	promptEngine := llm.NewPromptEngine()
 	promptEngine.RegisterBuiltinTemplates()
-	promptEngine.Register("agent_system", agentSystemPrompt)
+	_ = promptEngine.Register("agent_system", agentSystemPrompt)
 
 	return &DefaultAgentLoop{
 		config:          config,

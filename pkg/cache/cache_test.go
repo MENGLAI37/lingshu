@@ -20,7 +20,7 @@ func TestInitSingleMode(t *testing.T) {
 
 	cache, err := Init(cfg)
 	if err == nil {
-		defer cache.Close()
+		defer func() { _ = cache.Close() }()
 		ctx := context.Background()
 
 		err = cache.Set(ctx, "test_key", "test_value", 10*time.Second)
@@ -53,7 +53,7 @@ func TestLockUnlock(t *testing.T) {
 
 	cache, err := Init(cfg)
 	if err == nil {
-		defer cache.Close()
+		defer func() { _ = cache.Close() }()
 		ctx := context.Background()
 		key := "test_lock"
 
