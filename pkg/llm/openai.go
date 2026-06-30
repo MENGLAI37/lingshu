@@ -69,7 +69,7 @@ func (p *OpenAIProvider) Complete(ctx context.Context, req *CompletionRequest) (
 	if err != nil {
 		return nil, NewError(ErrCodeProviderUnavailable, "OpenAI request failed", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		bodyBytes, _ := io.ReadAll(resp.Body)
@@ -124,7 +124,7 @@ func (p *OpenAIProvider) Stream(ctx context.Context, req *CompletionRequest) (<-
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		bodyBytes, _ := io.ReadAll(resp.Body)
 		return nil, NewError(ErrCodeProviderUnavailable, fmt.Sprintf("OpenAI returned status %d: %s", resp.StatusCode, string(bodyBytes)), nil)
 	}
@@ -132,7 +132,7 @@ func (p *OpenAIProvider) Stream(ctx context.Context, req *CompletionRequest) (<-
 	ch := make(chan StreamChunk, 10)
 	go func() {
 		defer close(ch)
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 		p.readSSEStream(ctx, resp.Body, ch, req.Model)
 	}()
 
@@ -151,7 +151,7 @@ func (p *OpenAIProvider) HealthCheck(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("health check returned status %d", resp.StatusCode)

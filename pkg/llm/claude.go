@@ -166,7 +166,7 @@ func (p *ClaudeProvider) HealthCheck(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	// Even a 400 is fine for health check - it means the API is reachable.
 	if resp.StatusCode >= 500 {
