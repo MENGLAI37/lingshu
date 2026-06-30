@@ -1,8 +1,10 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	"gopkg.in/yaml.v3"
@@ -33,7 +35,11 @@ func LoadLLMConfig() error {
 	llmConfigMu.Lock()
 	defer llmConfigMu.Unlock()
 
-	path := getConfigPath()
+	path, err := getConfigPath()
+	if err != nil {
+		return err
+	}
+
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -56,7 +62,10 @@ func SaveLLMConfig(cfg *LLMConfig) error {
 	llmConfigMu.Lock()
 	defer llmConfigMu.Unlock()
 
-	path := getConfigPath()
+	path, err := getConfigPath()
+	if err != nil {
+		return err
+	}
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return err
@@ -136,12 +145,25 @@ func SetCurrentProvider(name string) error {
 	return nil
 }
 
-func getConfigPath() string {
+func getConfigPath() (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return ".lingshu/config.yaml"
+		return "", fmt.Errorf("failed to get home directory: %w", err)
 	}
-	return filepath.Join(home, ".lingshu", "config.yaml")
+	path := filepath.Join(home, ".lingshu", "config.yaml")
+
+	// Security check: ensure path doesn't contain traversal sequences
+	cleanPath := filepath.Clean(path)
+	if cleanPath != path {
+		return "", fmt.Errorf("invalid config path: potential path traversal detected")
+	}
+
+	// Verify the path is under the home directory
+	if !strings.HasPrefix(cleanPath, home) {
+		return "", fmt.Errorf("invalid config path: outside home directory")
+	}
+
+	return path, nil
 }
 
 func loadFromEnv() *LLMConfig {
