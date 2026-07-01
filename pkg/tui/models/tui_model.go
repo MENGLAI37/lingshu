@@ -42,6 +42,7 @@ type TUIModel struct {
 	statusBar      *components.StatusBar
 	commandPreview *components.CommandPreview
 	highlighted    *components.HighlightedRenderer
+	configPanel    *components.ConfigPanel
 
 	width       int
 	height      int
@@ -101,13 +102,13 @@ func NewTUIModel() *TUIModel {
 		statusBar:      components.NewStatusBar(s),
 		commandPreview: components.NewCommandPreview(s),
 		highlighted:    components.NewHighlightedRenderer(s),
+		configPanel:    components.NewConfigPanel(s),
 		cluster:        "kind-lingshu-dev",
 		namespace:      "default",
 		environment:    "development",
 		msgChan:        make(chan tea.Msg, 100),
 	}
 
-	// Initialize Agent Loop if configuration is available
 	m.initAgentLoop()
 
 	return m
@@ -182,33 +183,20 @@ func (m *TUIModel) initAgentLoop() {
 
 // createLLMRouter creates an LLM router from config or environment
 func (m *TUIModel) createLLMRouter(cfg *config.Config) *llm.Router {
-	// Check environment variables first
-	apiKey := os.Getenv("OPENAI_API_KEY")
-	baseURL := os.Getenv("OPENAI_BASE_URL")
-	model := os.Getenv("OPENAI_MODEL")
-	if model == "" {
-		model = "gpt-4o"
-	}
-	if baseURL == "" {
-		baseURL = "https://api.openai.com/v1"
+	err := config.LoadLLMConfig()
+	if err != nil {
+		fmt.Printf("Warning: Failed to load LLM config: %v\n", err)
 	}
 
-	// If no API key, return nil (demo mode will be used)
-	if apiKey == "" {
-		fmt.Println("Note: OPENAI_API_KEY not set, running in demo mode")
+	providerConfig := config.GetCurrentProviderConfig()
+	if providerConfig == nil {
+		fmt.Println("Note: No LLM provider configured, running in demo mode")
+		m.statusBar.SetLLMProvider("未配置")
 		return nil
 	}
 
-	// Create provider config
-	providerConfig := llm.ProviderConfig{
-		Name:    "openai",
-		Model:   model,
-		APIKey:  apiKey,
-		BaseURL: baseURL,
-		Priority: 1,
-	}
-
-	return llm.NewRouter([]llm.ProviderConfig{providerConfig})
+	m.statusBar.SetLLMProvider(providerConfig.Name)
+	return llm.NewRouter([]llm.ProviderConfig{*providerConfig})
 }
 
 // createSecurityGateway creates a security gateway for the agent loop
@@ -280,7 +268,7 @@ func (m *TUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case msg.String() == "ctrl+c":
 			return m, tea.Quit
 		case msg.String() == "q":
-			if !m.commandPreview.Visible() && !m.highlighted.Visible() && !m.showHelp {
+			if !m.commandPreview.Visible() && !m.highlighted.Visible() && !m.showHelp && !m.configPanel.Visible() {
 				return m, tea.Quit
 			}
 		case msg.String() == "esc":
@@ -292,9 +280,18 @@ func (m *TUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.highlighted.Hide()
 				return m, nil
 			}
+			if m.configPanel.Visible() {
+				m.configPanel.Hide()
+				return m, nil
+			}
 		case msg.String() == "?":
-			if !m.commandPreview.Visible() && !m.highlighted.Visible() {
+			if !m.commandPreview.Visible() && !m.highlighted.Visible() && !m.configPanel.Visible() {
 				m.showHelp = !m.showHelp
+				return m, nil
+			}
+		case msg.String() == "c":
+			if !m.commandPreview.Visible() && !m.highlighted.Visible() && !m.showHelp {
+				m.configPanel.Show()
 				return m, nil
 			}
 		}
@@ -356,6 +353,15 @@ func (m *TUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.highlighted.SetContent(msg.Content, msg.ContentType, msg.Title)
 		m.highlighted.Show()
 		return m, nil
+
+	case components.ConfigSavedMsg:
+		m.configPanel.Hide()
+		m.reinitAgentLoop()
+		return m, nil
+
+	case components.ConfigCancelledMsg:
+		m.configPanel.Hide()
+		return m, nil
 	}
 
 	if m.commandPreview.Visible() {
@@ -366,6 +372,12 @@ func (m *TUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	if m.highlighted.Visible() {
 		m.highlighted, cmd = m.highlighted.Update(msg)
+		cmds = append(cmds, cmd)
+		return m, tea.Batch(cmds...)
+	}
+
+	if m.configPanel.Visible() {
+		m.configPanel, cmd = m.configPanel.Update(msg)
 		cmds = append(cmds, cmd)
 		return m, tea.Batch(cmds...)
 	}
@@ -403,6 +415,10 @@ func (m *TUIModel) View() string {
 
 	if m.highlighted.Visible() {
 		return m.overlayCenter(mainContent, m.highlighted.View())
+	}
+
+	if m.configPanel.Visible() {
+		return m.overlayCenter(mainContent, m.configPanel.View())
 	}
 
 	return mainContent
@@ -941,4 +957,10 @@ func (m *TUIModel) SetTheme(themeName theme.ThemeName) {
 	m.statusBar = components.NewStatusBar(m.styles)
 	m.commandPreview = components.NewCommandPreview(m.styles)
 	m.highlighted = components.NewHighlightedRenderer(m.styles)
+	m.configPanel = components.NewConfigPanel(m.styles)
+}
+
+func (m *TUIModel) reinitAgentLoop() {
+	m.agentLoop = nil
+	m.initAgentLoop()
 }

@@ -22,6 +22,7 @@ type StatusBar struct {
 	uptime        time.Duration
 	mode          string
 	width         int
+	llmProvider   string
 }
 
 type StatusTickMsg struct{}
@@ -66,6 +67,10 @@ func (s *StatusBar) View() string {
 		s.formatItem("集群", s.cluster, s.styles.Theme.Primary),
 		s.formatItem("命名空间", s.namespace, s.styles.Theme.Info),
 		s.formatItem("环境", s.environment, s.getEnvColor()),
+	}
+
+	if s.llmProvider != "" {
+		leftItems = append(leftItems, s.formatItem("LLM", s.llmProvider, s.styles.Theme.Secondary))
 	}
 
 	rightItems := []string{
@@ -161,6 +166,10 @@ func (s *StatusBar) SetSessionID(id string) {
 
 func (s *StatusBar) SetMode(mode string) {
 	s.mode = mode
+}
+
+func (s *StatusBar) SetLLMProvider(provider string) {
+	s.llmProvider = provider
 }
 
 func (s *StatusBar) SetWidth(w int) {

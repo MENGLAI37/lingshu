@@ -138,6 +138,28 @@ func (r *Router) GetProviders() []Provider {
 	return r.getProviders()
 }
 
+// GetProviderNames returns the names of all configured providers.
+func (r *Router) GetProviderNames() []string {
+	providers := r.getProviders()
+	names := make([]string, 0, len(providers))
+	for _, p := range providers {
+		names = append(names, p.Name())
+	}
+	return names
+}
+
+// GetProviderConfig returns the config for a specific provider.
+func (r *Router) GetProviderConfig(name string) *ProviderConfig {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	for _, cfg := range r.configs {
+		if cfg.Name == name {
+			return &cfg
+		}
+	}
+	return nil
+}
+
 // UpdateProviders updates the provider list dynamically.
 func (r *Router) UpdateProviders(configs []ProviderConfig) {
 	r.mu.Lock()
