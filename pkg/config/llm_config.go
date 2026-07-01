@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"gopkg.in/yaml.v3"
 
@@ -86,6 +87,13 @@ func LoadLLMConfig() error {
 	if err != nil {
 		if os.IsNotExist(err) {
 			llmConfigInstance = loadFromEnv()
+			if len(llmConfigInstance.Providers) > 0 {
+				_ = saveLLMConfigLocked(llmConfigInstance)
+			}
+			return nil
+		}
+		llmConfigInstance = loadFromEnv()
+		if len(llmConfigInstance.Providers) > 0 {
 			return nil
 		}
 		return err
@@ -93,17 +101,24 @@ func LoadLLMConfig() error {
 
 	var cfg LLMConfig
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
+		llmConfigInstance = loadFromEnv()
+		if len(llmConfigInstance.Providers) > 0 {
+			return nil
+		}
 		return err
+	}
+
+	for i := range cfg.Providers {
+		if cfg.Providers[i].Timeout > 0 && cfg.Providers[i].Timeout < time.Second {
+			cfg.Providers[i].Timeout = cfg.Providers[i].Timeout * time.Second
+		}
 	}
 
 	llmConfigInstance = &cfg
 	return nil
 }
 
-func SaveLLMConfig(cfg *LLMConfig) error {
-	llmConfigMu.Lock()
-	defer llmConfigMu.Unlock()
-
+func saveLLMConfigLocked(cfg *LLMConfig) error {
 	path, err := getConfigPath()
 	if err != nil {
 		return err
@@ -119,6 +134,17 @@ func SaveLLMConfig(cfg *LLMConfig) error {
 	}
 
 	if err := os.WriteFile(path, data, 0600); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func SaveLLMConfig(cfg *LLMConfig) error {
+	llmConfigMu.Lock()
+	defer llmConfigMu.Unlock()
+
+	if err := saveLLMConfigLocked(cfg); err != nil {
 		return err
 	}
 
@@ -241,7 +267,7 @@ func loadFromEnv() *LLMConfig {
 				APIKey:     apiKey,
 				BaseURL:    baseURL,
 				Priority:   1,
-				Timeout:    30,
+				Timeout:    30 * time.Second,
 				IsLocal:    false,
 				MaxRetries: 3,
 			},

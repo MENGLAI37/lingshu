@@ -29,7 +29,7 @@ func NewClaudeProvider(cfg ProviderConfig) *ClaudeProvider {
 	if cfg.BaseURL == "" {
 		cfg.BaseURL = claudeDefaultBaseURL
 	}
-	if cfg.Timeout == 0 {
+	if cfg.Timeout <= 0 || cfg.Timeout < time.Second {
 		cfg.Timeout = 30 * time.Second
 	}
 	return &ClaudeProvider{
