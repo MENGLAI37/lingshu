@@ -294,21 +294,18 @@ func (m *TUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 			// Esc - Close topmost popup layer by layer
+			// Help overlay is handled here; popups (commandPreview, highlighted, configPanel)
+			// handle Esc on their own via their Update() method. We only intercept Esc here
+			// for the help overlay, and let popups receive the Esc key directly.
 			if msg.String() == "esc" {
 				if m.showHelp {
 					m.showHelp = false
 					return m, nil
 				}
-				if m.commandPreview.Visible() {
-					m.commandPreview.Hide()
-					return m, nil
-				}
-				if m.highlighted.Visible() {
-					m.highlighted.Hide()
-					return m, nil
-				}
-				if m.configPanel.Visible() {
-					m.configPanel.Hide()
+				// If any popup is visible, fall through and let the popup handle it.
+				// Do NOT return here - the popup needs to receive the Esc key.
+				if !m.commandPreview.Visible() && !m.highlighted.Visible() && !m.configPanel.Visible() {
+					// No popups open, Esc does nothing in Normal mode
 					return m, nil
 				}
 			}
@@ -389,7 +386,7 @@ func (m *TUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 			// c - Open config panel
 			if msg.String() == "c" {
-				if !m.commandPreview.Visible() && !m.highlighted.Visible() && !m.showHelp {
+				if !m.commandPreview.Visible() && !m.highlighted.Visible() && !m.showHelp && !m.configPanel.Visible() {
 					m.configPanel.Show()
 					return m, nil
 				}
