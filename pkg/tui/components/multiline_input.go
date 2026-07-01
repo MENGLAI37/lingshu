@@ -123,6 +123,11 @@ func (m *MultiLineInput) Blur() {
 	m.textarea.Blur()
 }
 
+// Focused returns whether the input is currently focused
+func (m *MultiLineInput) Focused() bool {
+	return m.focused
+}
+
 func (m *MultiLineInput) SetValue(v string) {
 	m.textarea.SetValue(v)
 }

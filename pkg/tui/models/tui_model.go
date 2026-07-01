@@ -270,6 +270,29 @@ func (m *TUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, cmd
 		}
 
+		// When input is focused, only handle Ctrl+C and Esc
+		// (other character keys should go to the input for normal typing)
+		if m.input.Focused() {
+			switch msg.String() {
+			case "ctrl+c":
+				return m, tea.Quit
+			case "esc":
+				if m.showHelp {
+					m.showHelp = false
+					return m, nil
+				}
+				if m.highlighted.Visible() {
+					m.highlighted.Hide()
+					return m, nil
+				}
+				if m.configPanel.Visible() {
+					m.configPanel.Hide()
+					return m, nil
+				}
+			}
+			break // Skip the rest, let input handle the key
+		}
+
 		switch {
 		case msg.String() == "ctrl+c":
 			return m, tea.Quit

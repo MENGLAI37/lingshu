@@ -148,6 +148,9 @@ func (c *ConfigPanel) handleEditMode(msg tea.KeyMsg) (*ConfigPanel, tea.Cmd) {
 		if msg.Alt {
 			return c, c.saveConfig()
 		}
+	case tea.KeyCtrlS:
+		// Ctrl+S saves the config (more reliable than Alt+Enter in some terminals)
+		return c, c.saveConfig()
 	case tea.KeyEsc:
 		c.mode = modeList
 		c.errMsg = ""
@@ -402,7 +405,7 @@ func (c *ConfigPanel) renderEditMode(title string) string {
 		formContent += f.label + " " + f.input.View() + "\n\n"
 	}
 
-	footer := c.styles.Help.Render("快捷键: Tab 切换字段 | Alt+Enter 保存 | Esc 返回")
+	footer := c.styles.Help.Render("快捷键: Tab 切换字段 | Ctrl+S 保存 | Esc 返回")
 
 	if c.errMsg != "" {
 		footer = c.styles.StatusError.Render("错误: "+c.errMsg) + "\n" + footer
