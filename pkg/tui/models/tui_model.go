@@ -368,20 +368,26 @@ func (m *TUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 			// / - Open search
 			if msg.String() == "/" {
-				// TODO: Implement search feature
-				return m, nil
+				if !m.commandPreview.Visible() && !m.highlighted.Visible() && !m.showHelp && !m.configPanel.Visible() {
+					// TODO: Implement search feature
+					return m, nil
+				}
 			}
 
 			// n - Next search result
 			if msg.String() == "n" {
-				// TODO: Implement search navigation
-				return m, nil
+				if !m.commandPreview.Visible() && !m.highlighted.Visible() && !m.showHelp && !m.configPanel.Visible() {
+					// TODO: Implement search navigation
+					return m, nil
+				}
 			}
 
 			// N - Previous search result
 			if msg.String() == "N" {
-				// TODO: Implement search navigation
-				return m, nil
+				if !m.commandPreview.Visible() && !m.highlighted.Visible() && !m.showHelp && !m.configPanel.Visible() {
+					// TODO: Implement search navigation
+					return m, nil
+				}
 			}
 
 			// c - Open config panel

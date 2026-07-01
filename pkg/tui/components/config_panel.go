@@ -62,6 +62,7 @@ func (c *ConfigPanel) Update(msg tea.Msg) (*ConfigPanel, tea.Cmd) {
 
 	var cmds []tea.Cmd
 	var cmd tea.Cmd
+	pasteHandled := false
 
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
@@ -69,7 +70,7 @@ func (c *ConfigPanel) Update(msg tea.Msg) (*ConfigPanel, tea.Cmd) {
 		case modeList:
 			return c.handleListMode(msg)
 		case modeEdit, modeAdd:
-			c, cmd = c.handleEditMode(msg)
+			c, cmd, pasteHandled = c.handleEditMode(msg)
 			cmds = append(cmds, cmd)
 		}
 	case tea.WindowSizeMsg:
@@ -77,10 +78,14 @@ func (c *ConfigPanel) Update(msg tea.Msg) (*ConfigPanel, tea.Cmd) {
 		c.height = msg.Height
 	}
 
+	// Only update inputFields if paste was not handled manually
+	// to avoid duplicate paste content
 	if c.mode == modeEdit || c.mode == modeAdd {
 		for i := range c.inputFields {
-			c.inputFields[i], cmd = c.inputFields[i].Update(msg)
-			cmds = append(cmds, cmd)
+			if !pasteHandled {
+				c.inputFields[i], cmd = c.inputFields[i].Update(msg)
+				cmds = append(cmds, cmd)
+			}
 		}
 	}
 
@@ -140,7 +145,7 @@ func (c *ConfigPanel) handleListMode(msg tea.KeyMsg) (*ConfigPanel, tea.Cmd) {
 	return c, nil
 }
 
-func (c *ConfigPanel) handleEditMode(msg tea.KeyMsg) (*ConfigPanel, tea.Cmd) {
+func (c *ConfigPanel) handleEditMode(msg tea.KeyMsg) (*ConfigPanel, tea.Cmd, bool) {
 	switch msg.Type {
 	case tea.KeyTab:
 		c.switchInputField(1)
@@ -148,15 +153,15 @@ func (c *ConfigPanel) handleEditMode(msg tea.KeyMsg) (*ConfigPanel, tea.Cmd) {
 		c.switchInputField(-1)
 	case tea.KeyEnter:
 		if msg.Alt {
-			return c, c.saveConfig()
+			return c, c.saveConfig(), false
 		}
 	case tea.KeyCtrlS:
-		return c, c.saveConfig()
+		return c, c.saveConfig(), false
 	case tea.KeyCtrlV:
 		if content, err := clipboard.ReadAll(); err == nil && content != "" {
 			c.insertIntoFocusedField(content)
 		}
-		return c, nil
+		return c, nil, true // Mark paste as handled
 	case tea.KeyCtrlA:
 		c.selectAllCurrentField()
 	case tea.KeyEsc:
@@ -166,7 +171,7 @@ func (c *ConfigPanel) handleEditMode(msg tea.KeyMsg) (*ConfigPanel, tea.Cmd) {
 			c.inputFields[i].Blur()
 		}
 	}
-	return c, nil
+	return c, nil, false
 }
 
 func (c *ConfigPanel) switchInputField(direction int) {
