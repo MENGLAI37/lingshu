@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/atotto/clipboard"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/lingshu/lingshu/pkg/config"
@@ -59,6 +60,14 @@ func (c *ConfigPanel) Update(msg tea.Msg) (*ConfigPanel, tea.Cmd) {
 
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
+		// Handle Ctrl+V for paste
+		if msg.Type == tea.KeyCtrlV && (c.mode == modeEdit || c.mode == modeAdd) {
+			// Read clipboard and insert into focused field
+			if content, err := clipboard.ReadAll(); err == nil && content != "" {
+				c.insertIntoFocusedField(content)
+			}
+			return c, nil
+		}
 		switch c.mode {
 		case modeList:
 			return c.handleListMode(msg)
@@ -154,6 +163,16 @@ func (c *ConfigPanel) switchInputField(direction int) {
 		}
 	}
 	c.inputFields[0].Focus()
+}
+
+func (c *ConfigPanel) insertIntoFocusedField(text string) {
+	for i := range c.inputFields {
+		if c.inputFields[i].Focused() {
+			currentValue := c.inputFields[i].Value()
+			c.inputFields[i].SetValue(currentValue + text)
+			return
+		}
+	}
 }
 
 func (c *ConfigPanel) initEditFields() {
