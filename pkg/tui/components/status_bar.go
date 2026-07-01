@@ -82,13 +82,40 @@ func (s *StatusBar) View() string {
 	leftPart := strings.Join(leftItems, "  ")
 	rightPart := strings.Join(rightItems, "  ")
 
-	totalWidth := lipgloss.Width(leftPart) + lipgloss.Width(rightPart)
-	padding := ""
-	if s.width > totalWidth {
-		padding = strings.Repeat(" ", s.width-totalWidth)
+	paddingWidth := s.width - lipgloss.Width(leftPart) - lipgloss.Width(rightPart)
+	if paddingWidth < 0 {
+		paddingWidth = 0
 	}
+	padding := strings.Repeat(" ", paddingWidth)
 
 	content := leftPart + padding + rightPart
+
+	// 如果内容仍然超出宽度，逐步简化显示
+	contentWidth := lipgloss.Width(content)
+	if contentWidth > s.width && s.width > 0 {
+		// 尝试去掉 LLM 信息
+		if len(leftItems) > 3 {
+			leftItems = leftItems[:3]
+			leftPart = strings.Join(leftItems, "  ")
+			paddingWidth = s.width - lipgloss.Width(leftPart) - lipgloss.Width(rightPart)
+			if paddingWidth < 0 {
+				paddingWidth = 0
+			}
+			padding = strings.Repeat(" ", paddingWidth)
+			content = leftPart + padding + rightPart
+			contentWidth = lipgloss.Width(content)
+		}
+	}
+
+	if contentWidth > s.width && s.width > 0 {
+		// 只保留左侧关键信息，省略右侧
+		leftItems = []string{
+			s.formatItem("集群", s.cluster, s.styles.Theme.Primary),
+			s.formatItem("NS", s.namespace, s.styles.Theme.Info),
+		}
+		leftPart = strings.Join(leftItems, "  ")
+		content = leftPart
+	}
 
 	return s.styles.Footer.Width(s.width).Render(content)
 }
