@@ -225,8 +225,6 @@ func (c *ConfigPanel) initEditFields() {
 	c.inputFields[2].SetValue(provider.APIKey)
 	c.inputFields[2].Placeholder = "API Key"
 	c.inputFields[2].Width = 40
-	c.inputFields[2].EchoMode = textinput.EchoPassword
-	c.inputFields[2].EchoCharacter = '*'
 
 	c.inputFields[3] = textinput.New()
 	c.inputFields[3].SetValue(provider.BaseURL)
@@ -249,8 +247,6 @@ func (c *ConfigPanel) initAddFields() {
 	c.inputFields[2].SetValue("")
 	c.inputFields[2].Placeholder = "API Key"
 	c.inputFields[2].Width = 40
-	c.inputFields[2].EchoMode = textinput.EchoPassword
-	c.inputFields[2].EchoCharacter = '*'
 
 	c.inputFields[3] = textinput.New()
 	c.inputFields[3].SetValue("")

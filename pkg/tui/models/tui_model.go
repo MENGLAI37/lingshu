@@ -424,8 +424,10 @@ func (m *TUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 			// m - Toggle input mode (single/multi line)
 			if msg.String() == "m" {
-				// TODO: Implement input mode toggle
-				return m, nil
+				if !m.commandPreview.Visible() && !m.highlighted.Visible() && !m.showHelp && !m.configPanel.Visible() {
+					// TODO: Implement input mode toggle
+					return m, nil
+				}
 			}
 		}
 
