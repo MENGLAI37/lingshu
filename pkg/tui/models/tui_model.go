@@ -264,6 +264,12 @@ func (m *TUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
+		// When configPanel is in editing mode, let it handle all keys first
+		if m.configPanel.Visible() && m.configPanel.IsEditing() {
+			m.configPanel, cmd = m.configPanel.Update(msg)
+			return m, cmd
+		}
+
 		switch {
 		case msg.String() == "ctrl+c":
 			return m, tea.Quit
