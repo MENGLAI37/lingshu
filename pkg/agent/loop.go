@@ -161,8 +161,13 @@ func (al *DefaultAgentLoop) ExecuteWithTools(ctx context.Context, input string, 
 		// Parse response
 		thought := resp.Content
 
-		// Check for tool calls
+		// Check for tool calls - first try structured function call
 		toolCalls := al.parser.Parse(resp.FunctionCall)
+
+		// If no structured tool calls, try parsing from content
+		if len(toolCalls) == 0 && thought != "" {
+			toolCalls = al.parser.ParseFromContent(thought)
+		}
 
 		// Record thinking step
 		thinkingStep := ThinkingStep{
