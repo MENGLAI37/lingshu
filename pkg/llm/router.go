@@ -195,10 +195,9 @@ func (r *Router) UpdateProviders(configs []ProviderConfig) {
 func (r *Router) tryComplete(ctx context.Context, provider Provider, req *CompletionRequest) (*CompletionResponse, error) {
 	start := time.Now()
 
-	// Apply per-provider timeout if configured
 	providerCtx := ctx
 	for _, cfg := range r.configs {
-		if cfg.Name == provider.Name() && cfg.Timeout > 0 {
+		if cfg.Name == provider.Name() && cfg.Timeout >= time.Second {
 			var cancel context.CancelFunc
 			providerCtx, cancel = context.WithTimeout(ctx, cfg.Timeout)
 			defer cancel()
@@ -223,7 +222,7 @@ func (r *Router) tryComplete(ctx context.Context, provider Provider, req *Comple
 func (r *Router) tryStream(ctx context.Context, provider Provider, req *CompletionRequest) (<-chan StreamChunk, error) {
 	providerCtx := ctx
 	for _, cfg := range r.configs {
-		if cfg.Name == provider.Name() && cfg.Timeout > 0 {
+		if cfg.Name == provider.Name() && cfg.Timeout >= time.Second {
 			var cancel context.CancelFunc
 			providerCtx, cancel = context.WithTimeout(ctx, cfg.Timeout)
 			defer cancel()

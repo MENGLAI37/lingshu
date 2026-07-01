@@ -29,7 +29,7 @@ func NewOpenAIProvider(cfg ProviderConfig) *OpenAIProvider {
 	if cfg.BaseURL == "" {
 		cfg.BaseURL = openAIDefaultBaseURL
 	}
-	if cfg.Timeout == 0 {
+	if cfg.Timeout <= 0 || cfg.Timeout < time.Second {
 		cfg.Timeout = 30 * time.Second
 	}
 	return &OpenAIProvider{

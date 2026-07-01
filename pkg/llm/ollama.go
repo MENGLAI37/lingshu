@@ -29,7 +29,7 @@ func NewOllamaProvider(cfg ProviderConfig) *OllamaProvider {
 	if cfg.BaseURL == "" {
 		cfg.BaseURL = ollamaDefaultBaseURL
 	}
-	if cfg.Timeout == 0 {
+	if cfg.Timeout <= 0 || cfg.Timeout < time.Second {
 		cfg.Timeout = 60 * time.Second // Local models may be slower
 	}
 	return &OllamaProvider{
