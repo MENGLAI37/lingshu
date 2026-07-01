@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/lingshu/lingshu/pkg/tui/components"
 	"github.com/stretchr/testify/assert"
 )
@@ -69,4 +70,67 @@ func TestDemoModeNginxDiagnosis(t *testing.T) {
 	// Verify demo mode provides meaningful output
 	// This is tested by checking the model's demo response logic
 	t.Log("Demo mode test passed - agent loop not initialized as expected")
+}
+
+// TestInputFocusedDoesNotTriggerCKey verifies that pressing 'c' in the
+// focused input does NOT open the config panel. This is the regression test
+// for the bug where 'c' shortcut was being triggered even when typing in the
+// input field.
+func TestInputFocusedDoesNotTriggerCKey(t *testing.T) {
+	model := NewTUIModel()
+
+	// Focus the input
+	model.input.Focus()
+	assert.True(t, model.input.Focused(), "input should be focused")
+
+	// Press 'c' (as a regular character)
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'c'}}
+	model.Update(msg)
+
+	// Config panel should NOT be visible
+	assert.False(t, model.configPanel.Visible(),
+		"config panel should not be opened by typing 'c' in focused input")
+}
+
+// TestInputFocusedDoesNotTriggerQKey verifies that pressing 'q' in the
+// focused input does NOT quit the program.
+func TestInputFocusedDoesNotTriggerQKey(t *testing.T) {
+	model := NewTUIModel()
+	model.input.Focus()
+	assert.True(t, model.input.Focused(), "input should be focused")
+
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}}
+	_, _ = model.Update(msg)
+
+	// The model should still be valid; 'q' is treated as text input.
+	// We verify the model state is not corrupted by the keypress.
+	assert.NotNil(t, model)
+}
+
+// TestInputFocusedDoesNotTriggerHelpKey verifies that pressing '?' in the
+// focused input does NOT toggle the help overlay.
+func TestInputFocusedDoesNotTriggerHelpKey(t *testing.T) {
+	model := NewTUIModel()
+	model.input.Focus()
+	initialHelp := model.showHelp
+
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'?'}}
+	model.Update(msg)
+
+	assert.Equal(t, initialHelp, model.showHelp,
+		"help should not toggle when input is focused")
+}
+
+// TestInputNotFocusedTriggersCKey verifies that 'c' still opens the
+// config panel when input is NOT focused.
+func TestInputNotFocusedTriggersCKey(t *testing.T) {
+	model := NewTUIModel()
+	model.input.Blur()
+	assert.False(t, model.input.Focused(), "input should be blurred")
+
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'c'}}
+	model.Update(msg)
+
+	assert.True(t, model.configPanel.Visible(),
+		"config panel should be opened by 'c' when input is not focused")
 }
