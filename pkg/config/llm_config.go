@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -56,10 +57,14 @@ func readConfigFile(path string) ([]byte, error) {
 	}
 
 	// Security check: validate file permissions (should be readable only by owner)
-	perm := info.Mode().Perm()
-	if perm&0077 != 0 {
-		_ = file.Close()
-		return nil, fmt.Errorf("config file has insecure permissions %o: %s", perm, path)
+	// On Windows, Unix-style permission bits are not meaningful (ACL is used instead),
+	// so skip this check on Windows platforms.
+	if runtime.GOOS != "windows" {
+		perm := info.Mode().Perm()
+		if perm&0077 != 0 {
+			_ = file.Close()
+			return nil, fmt.Errorf("config file has insecure permissions %o: %s", perm, path)
+		}
 	}
 
 	// Read file contents
