@@ -4,7 +4,7 @@
 
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![Go Version](https://img.shields.io/badge/go-1.22+-00ADD8.svg)](https://golang.org/)
-[![Build Status](https://github.com/lingshu/lingshu/workflows/CI/badge.svg)](https://github.com/lingshu/lingshu/actions)
+[![CI](https://github.com/MENGLAI37/lingshu/actions/workflows/ci.yaml/badge.svg)](https://github.com/MENGLAI37/lingshu/actions/workflows/ci.yaml)
 
 ## 项目概述
 
@@ -260,12 +260,6 @@ helm install lingshu lingshu/lingshu \
 | v2.0 | 规模化生产 - HA/性能优化 | 📋 规划中 |
 | v2.1 | 全栈深度 - GitOps/多集群 | 📋 规划中 |
 | v2.2 | 安全灾备 - 幂等性/审计链 | 📋 规划中 |
-
-## 文档
-
-- [研发任务拆解](docs/lingshu-task-breakdown-final.md)
-- [PRD v2.3](docs/ops-ai-agent-prd-v2.3.md)
-- [系统设计文档](docs/ops-ai-agent-system-design.md)
 
 ## 贡献
 
