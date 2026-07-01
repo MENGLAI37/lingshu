@@ -3,6 +3,7 @@ package components
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/atotto/clipboard"
 	"github.com/charmbracelet/bubbles/textinput"
@@ -297,7 +298,7 @@ func (c *ConfigPanel) saveConfig() tea.Cmd {
 			APIKey:     apiKey,
 			BaseURL:    baseURL,
 			Priority:   len(c.providers) + 1,
-			Timeout:    30,
+			Timeout:    30 * time.Second,
 			IsLocal:    false,
 			MaxRetries: 3,
 		})
