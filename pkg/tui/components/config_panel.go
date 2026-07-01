@@ -65,14 +65,6 @@ func (c *ConfigPanel) Update(msg tea.Msg) (*ConfigPanel, tea.Cmd) {
 
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
-		// Handle Ctrl+V for paste
-		if msg.Type == tea.KeyCtrlV && (c.mode == modeEdit || c.mode == modeAdd) {
-			// Read clipboard and insert into focused field
-			if content, err := clipboard.ReadAll(); err == nil && content != "" {
-				c.insertIntoFocusedField(content)
-			}
-			return c, nil
-		}
 		switch c.mode {
 		case modeList:
 			return c.handleListMode(msg)
@@ -159,10 +151,13 @@ func (c *ConfigPanel) handleEditMode(msg tea.KeyMsg) (*ConfigPanel, tea.Cmd) {
 			return c, c.saveConfig()
 		}
 	case tea.KeyCtrlS:
-		// Ctrl+S saves the config (more reliable than Alt+Enter in some terminals)
 		return c, c.saveConfig()
+	case tea.KeyCtrlV:
+		if content, err := clipboard.ReadAll(); err == nil && content != "" {
+			c.insertIntoFocusedField(content)
+		}
+		return c, nil
 	case tea.KeyCtrlA:
-		// Ctrl+A: select all text in current field
 		c.selectAllCurrentField()
 	case tea.KeyEsc:
 		c.mode = modeList
