@@ -7,6 +7,7 @@ import (
 	"github.com/atotto/clipboard"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/lingshu/lingshu/pkg/config"
 	"github.com/lingshu/lingshu/pkg/llm"
 	"github.com/lingshu/lingshu/pkg/tui/styles"
@@ -351,85 +352,187 @@ func (c *ConfigPanel) View() string {
 		return ""
 	}
 
+	panelWidth := 70
+	if c.width > 0 {
+		panelWidth = c.width - 10
+		if panelWidth < 60 {
+			panelWidth = 60
+		}
+		if panelWidth > 100 {
+			panelWidth = 100
+		}
+	}
+
 	var content string
 
 	switch c.mode {
 	case modeList:
-		content = c.renderListMode()
+		content = c.renderListMode(panelWidth)
 	case modeEdit:
-		content = c.renderEditMode("编辑 Provider")
+		content = c.renderEditMode("编辑 Provider", panelWidth)
 	case modeAdd:
-		content = c.renderEditMode("添加 Provider")
+		content = c.renderEditMode("添加 Provider", panelWidth)
 	}
 
-	return c.styles.BorderActive.Render(content)
+	borderStyle := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(c.styles.Theme.Primary).
+		Padding(1, 2).
+		Width(panelWidth)
+
+	return borderStyle.Render(content)
 }
 
-func (c *ConfigPanel) renderListMode() string {
-	header := c.styles.Title.Render("⚙️  LLM 配置管理") + "\n"
+func (c *ConfigPanel) renderListMode(panelWidth int) string {
+	title := c.styles.Title.Render("⚙️  LLM 配置管理")
+	separator := lipgloss.NewStyle().
+		Foreground(c.styles.Theme.Border).
+		Render(strings.Repeat("─", panelWidth-4))
 
 	var listContent string
 	if len(c.providers) == 0 {
-		listContent = c.styles.Help.Render("暂无配置的 Provider\n按 A 添加新 Provider")
+		emptyStyle := lipgloss.NewStyle().
+			Foreground(c.styles.Theme.Muted).
+			Italic(true).
+			Align(lipgloss.Center).
+			Width(panelWidth - 4)
+		listContent = emptyStyle.Render("暂无配置的 Provider") + "\n\n" +
+			emptyStyle.Render("按 A 添加新 Provider")
 	} else {
 		currentProvider := config.GetLLMConfig().CurrentProvider
 		for i, p := range c.providers {
-			selected := " "
-			if i == c.currentIndex {
-				selected = "▶"
+			isSelected := i == c.currentIndex
+			isCurrent := p.Name == currentProvider
+
+			var rowStyle lipgloss.Style
+			if isSelected {
+				rowStyle = lipgloss.NewStyle().
+					Background(c.styles.Theme.Selection).
+					Foreground(c.styles.Theme.Primary).
+					Bold(true)
+			} else {
+				rowStyle = lipgloss.NewStyle()
 			}
-			active := ""
-			if p.Name == currentProvider {
-				active = c.styles.StatusOK.Render(" [当前]")
+
+			prefix := "  "
+			if isSelected {
+				prefix = "▶ "
 			}
-			line := fmt.Sprintf("%s %s%s\n",
-				c.styles.Header.Render(selected),
-				p.Name,
-				active,
-			)
-			line += fmt.Sprintf("   Model: %s\n", p.Model)
-			line += fmt.Sprintf("   BaseURL: %s\n", p.BaseURL)
+
+			nameText := p.Name
+			if isCurrent {
+				nameText += " " + c.styles.StatusOK.Render("[当前]")
+			}
+
+			nameLine := rowStyle.Width(panelWidth - 4).Render(prefix + nameText)
+			listContent += nameLine + "\n"
+
+			detailStyle := lipgloss.NewStyle().
+				Foreground(c.styles.Theme.Muted).
+				PaddingLeft(4)
+			if isSelected {
+				detailStyle = detailStyle.Background(c.styles.Theme.Selection)
+			}
+
+			modelLine := fmt.Sprintf("Model:   %s", p.Model)
+			urlLine := fmt.Sprintf("BaseURL: %s", truncateString(p.BaseURL, panelWidth-14))
+			listContent += detailStyle.Width(panelWidth - 4).Render(modelLine) + "\n"
+			listContent += detailStyle.Width(panelWidth - 4).Render(urlLine) + "\n"
+
 			if i < len(c.providers)-1 {
-				line += "\n"
+				listContent += "\n"
 			}
-			listContent += line
 		}
 	}
 
-	footer := "\n" + c.styles.Help.Render("快捷键: ↑↓ 选择 | Enter 编辑 | A 添加 | D 删除 | S 保存 | Esc 退出")
+	helpText := "↑↓ 选择 | Enter/e 编辑 | A/n 添加 | D/x 删除 | S 保存 | r 刷新 | Esc 退出"
+	footerStyle := lipgloss.NewStyle().
+		Foreground(c.styles.Theme.Muted).
+		Italic(true).
+		Align(lipgloss.Center).
+		Width(panelWidth - 4)
+	footer := footerStyle.Render(helpText)
 
+	var errLine string
 	if c.errMsg != "" {
-		footer = "\n" + c.styles.StatusError.Render("错误: "+c.errMsg) + footer
+		errStyle := lipgloss.NewStyle().
+			Foreground(c.styles.Theme.Error).
+			Bold(true).
+			Align(lipgloss.Center).
+			Width(panelWidth - 4)
+		errLine = errStyle.Render("✖ "+c.errMsg) + "\n\n"
 	}
 
-	return header + "\n" + listContent + footer
+	return title + "\n" + separator + "\n\n" + listContent + "\n\n" + errLine + footer
 }
 
-func (c *ConfigPanel) renderEditMode(title string) string {
-	header := c.styles.Title.Render(title) + "\n\n"
+func (c *ConfigPanel) renderEditMode(title string, panelWidth int) string {
+	titleText := c.styles.Title.Render(title)
+	separator := lipgloss.NewStyle().
+		Foreground(c.styles.Theme.Border).
+		Render(strings.Repeat("─", panelWidth-4))
+
+	labelWidth := 10
+	fieldWidth := panelWidth - 4 - labelWidth - 2
 
 	fields := []struct {
 		label string
 		input textinput.Model
 	}{
-		{"名称:", c.inputFields[0]},
-		{"模型:", c.inputFields[1]},
-		{"API Key:", c.inputFields[2]},
-		{"Base URL:", c.inputFields[3]},
+		{"名称", c.inputFields[0]},
+		{"模型", c.inputFields[1]},
+		{"API Key", c.inputFields[2]},
+		{"Base URL", c.inputFields[3]},
 	}
 
-	formContent := ""
+	c.inputFields[0].Width = fieldWidth
+	c.inputFields[1].Width = fieldWidth
+	c.inputFields[2].Width = fieldWidth
+	c.inputFields[3].Width = fieldWidth
+
+	var formContent string
 	for _, f := range fields {
-		formContent += f.label + " " + f.input.View() + "\n\n"
+		labelStyle := lipgloss.NewStyle().
+			Foreground(c.styles.Theme.Secondary).
+			Bold(true).
+			Width(labelWidth).
+			Align(lipgloss.Right)
+
+		label := labelStyle.Render(f.label + ":")
+		inputView := f.input.View()
+
+		formContent += lipgloss.JoinHorizontal(lipgloss.Top, label, " ", inputView) + "\n\n"
 	}
 
-	footer := c.styles.Help.Render("快捷键: Tab 切换字段 | Ctrl+S 保存 (Alt+Enter 视终端而定) | Esc 返回")
+	helpText := "Tab 切换字段 | Ctrl+S 保存 | Esc 返回"
+	footerStyle := lipgloss.NewStyle().
+		Foreground(c.styles.Theme.Muted).
+		Italic(true).
+		Align(lipgloss.Center).
+		Width(panelWidth - 4)
+	footer := footerStyle.Render(helpText)
 
+	var errLine string
 	if c.errMsg != "" {
-		footer = c.styles.StatusError.Render("错误: "+c.errMsg) + "\n" + footer
+		errStyle := lipgloss.NewStyle().
+			Foreground(c.styles.Theme.Error).
+			Bold(true).
+			Align(lipgloss.Center).
+			Width(panelWidth - 4)
+		errLine = errStyle.Render("✖ "+c.errMsg) + "\n\n"
 	}
 
-	return header + formContent + footer
+	return titleText + "\n" + separator + "\n\n" + formContent + errLine + footer
+}
+
+func truncateString(s string, maxLen int) string {
+	if maxLen <= 3 {
+		return s
+	}
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen-3] + "..."
 }
 
 func (c *ConfigPanel) Show() {

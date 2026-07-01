@@ -643,23 +643,27 @@ func (m *TUIModel) renderBody() string {
 	chatArea := m.chatView.View()
 	inputArea := m.input.View()
 
+	headerHeight := 2
+	footerHeight := 1
+	inputLines := lipgloss.Height(inputArea)
+	separatorHeight := 1
+	chatAreaHeight := m.height - headerHeight - footerHeight - inputLines - separatorHeight - 2
+	if chatAreaHeight < 3 {
+		chatAreaHeight = 3
+	}
+
+	body := lipgloss.NewStyle().
+		Padding(0, 2).
+		Height(chatAreaHeight).
+		Render(chatArea)
+
 	separator := lipgloss.NewStyle().
 		Foreground(m.theme.Border).
 		Width(m.width).
 		Render(strings.Repeat("─", m.width))
 
-	bodyHeight := m.height - 8
-	if bodyHeight < 5 {
-		bodyHeight = 5
-	}
-
-	body := lipgloss.NewStyle().
-		Padding(1, 2).
-		Height(bodyHeight).
-		Render(chatArea)
-
 	inputSection := lipgloss.NewStyle().
-		Padding(1, 2).
+		Padding(0, 2).
 		Render(inputArea)
 
 	return lipgloss.JoinVertical(lipgloss.Left,
@@ -667,6 +671,17 @@ func (m *TUIModel) renderBody() string {
 		separator,
 		inputSection,
 	)
+}
+
+func ensureHeight(s string, height int) string {
+	lines := strings.Split(s, "\n")
+	for len(lines) < height {
+		lines = append(lines, "")
+	}
+	if len(lines) > height {
+		lines = lines[:height]
+	}
+	return strings.Join(lines, "\n")
 }
 
 func (m *TUIModel) overlayHelp(content string) string {

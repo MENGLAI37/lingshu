@@ -139,35 +139,71 @@ func (c *CommandPreview) View() string {
 		return ""
 	}
 
+	panelWidth := 70
+	if c.width > 0 {
+		panelWidth = c.width - 10
+		if panelWidth < 60 {
+			panelWidth = 60
+		}
+		if panelWidth > 100 {
+			panelWidth = 100
+		}
+	}
+
 	riskColor := c.styles.Theme.GetRiskColor(string(c.riskLevel))
 
 	riskBadge := lipgloss.NewStyle().
 		Foreground(riskColor).
 		Bold(true).
 		Padding(0, 1).
-		Render(fmt.Sprintf("风险等级: %s", c.riskLevel))
+		Render(fmt.Sprintf("[%s]", c.riskLevel))
 
-	header := lipgloss.JoinHorizontal(lipgloss.Top,
-		c.styles.Title.Render("⚠️  命令预览"),
-		"  ",
-		riskBadge,
-	)
+	title := c.styles.Title.Render("⚠️  命令预览")
+	separator := lipgloss.NewStyle().
+		Foreground(c.styles.Theme.Border).
+		Render(strings.Repeat("─", panelWidth-4))
 
-	cmdBlock := c.styles.CodeBlock.Render(c.command)
+	cmdBlock := lipgloss.NewStyle().
+		Foreground(c.styles.Theme.Foreground).
+		Background(c.styles.Theme.Selection).
+		Padding(1, 2).
+		Margin(1, 0).
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(c.styles.Theme.Border).
+		Width(panelWidth - 4).
+		Render(c.command)
 
-	descSection := ""
+	var sections []string
+
 	if c.description != "" {
-		descSection = c.styles.Subtitle.Render("操作说明:") + "\n" + c.description + "\n\n"
+		descTitle := lipgloss.NewStyle().
+			Foreground(c.styles.Theme.Secondary).
+			Bold(true).
+			Render("📝 操作说明")
+		sections = append(sections, descTitle+"\n  "+c.description)
 	}
 
-	impactSection := ""
 	if c.impactAnalysis != "" {
-		impactSection = c.styles.Subtitle.Render("影响面分析:") + "\n" + c.impactAnalysis + "\n\n"
+		impactTitle := lipgloss.NewStyle().
+			Foreground(c.styles.Theme.Warning).
+			Bold(true).
+			Render("🔍 影响面分析")
+		impactContent := c.impactAnalysis
+		if !c.showFullImpact {
+			lines := strings.Split(impactContent, "\n")
+			if len(lines) > 3 {
+				impactContent = strings.Join(lines[:3], "\n") + "\n  ... (按 v 查看完整内容)"
+			}
+		}
+		sections = append(sections, impactTitle+"\n  "+impactContent)
 	}
 
-	preflightSection := ""
 	if len(c.preflight) > 0 {
-		checks := []string{c.styles.Subtitle.Render("Pre-flight 检查:")}
+		checkTitle := lipgloss.NewStyle().
+			Foreground(c.styles.Theme.Info).
+			Bold(true).
+			Render("✅ Pre-flight 检查")
+		var checks []string
 		for _, check := range c.preflight {
 			status := "✓"
 			statusStyle := c.styles.StatusOK
@@ -181,8 +217,10 @@ func (c *CommandPreview) View() string {
 				check.Detail,
 			))
 		}
-		preflightSection = strings.Join(checks, "\n") + "\n\n"
+		sections = append(sections, checkTitle+"\n"+strings.Join(checks, "\n"))
 	}
+
+	sectionsContent := strings.Join(sections, "\n\n")
 
 	buttons := make([]string, len(c.buttons))
 	for i, btn := range c.buttons {
@@ -192,17 +230,34 @@ func (c *CommandPreview) View() string {
 			buttons[i] = c.styles.Button.Render(btn)
 		}
 	}
-	buttonsRow := lipgloss.JoinHorizontal(lipgloss.Left, buttons...)
+	buttonsRow := lipgloss.NewStyle().
+		Align(lipgloss.Center).
+		Width(panelWidth - 4).
+		Render(lipgloss.JoinHorizontal(lipgloss.Left, buttons...))
 
-	content := header + "\n\n" +
-		descSection +
+	helpText := "Y/Enter 确认 | N/Esc 取消 | Tab/←→ 切换 | v 查看完整影响 | j/k 滚动"
+	footer := lipgloss.NewStyle().
+		Foreground(c.styles.Theme.Muted).
+		Italic(true).
+		Align(lipgloss.Center).
+		Width(panelWidth - 4).
+		Render(helpText)
+
+	headerRow := lipgloss.JoinHorizontal(lipgloss.Top, title, "  ", riskBadge)
+
+	content := headerRow + "\n" + separator + "\n\n" +
 		cmdBlock + "\n" +
-		impactSection +
-		preflightSection +
-		c.styles.Help.Render("按 Y 确认执行，N 或 Esc 取消") + "\n\n" +
+		sectionsContent + "\n\n" +
+		footer + "\n\n" +
 		buttonsRow
 
-	return c.styles.BorderActive.Render(content)
+	borderStyle := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(c.styles.Theme.Primary).
+		Padding(1, 2).
+		Width(panelWidth)
+
+	return borderStyle.Render(content)
 }
 
 func (c *CommandPreview) Show(cmd string, risk RiskLevel, desc string, impact string, preflight []PreflightCheck) {

@@ -186,6 +186,11 @@ func (h *HighlightedRenderer) View() string {
 		return ""
 	}
 
+	panelWidth := h.width
+	if panelWidth <= 0 {
+		panelWidth = 80
+	}
+
 	visibleLines := h.getVisibleLines()
 	var rendered []string
 
@@ -219,15 +224,36 @@ func (h *HighlightedRenderer) View() string {
 
 	content := strings.Join(rendered, "\n")
 
-	header := h.styles.Title.Render(fmt.Sprintf("📄 %s [%s]", h.title, strings.ToUpper(string(h.contentType))))
-	help := h.styles.Help.Render("↑/↓: 移动 | Space/Enter: 折叠/展开 | Home/End: 跳转 | PgUp/PgDn: 翻页")
+	title := h.styles.Title.Render(fmt.Sprintf("📄 %s [%s]", h.title, strings.ToUpper(string(h.contentType))))
+	separator := lipgloss.NewStyle().
+		Foreground(h.styles.Theme.Border).
+		Render(strings.Repeat("─", panelWidth-4))
+
+	bodyHeight := h.height - 6
+	if bodyHeight < 5 {
+		bodyHeight = 5
+	}
 
 	body := lipgloss.NewStyle().
-		Width(h.width - 4).
-		Height(h.height - 4).
+		Width(panelWidth - 4).
+		Height(bodyHeight).
 		Render(content)
 
-	return h.styles.Border.Render(header + "\n" + body + "\n" + help)
+	helpText := "↑/↓/j/k: 移动 | Space/Enter/o: 折叠 | Home/End: 跳转 | PgUp/PgDn: 翻页 | y: 复制 | q/Esc: 关闭"
+	help := lipgloss.NewStyle().
+		Foreground(h.styles.Theme.Muted).
+		Italic(true).
+		Align(lipgloss.Center).
+		Width(panelWidth - 4).
+		Render(helpText)
+
+	borderStyle := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(h.styles.Theme.Primary).
+		Padding(1, 2).
+		Width(panelWidth)
+
+	return borderStyle.Render(title + "\n" + separator + "\n\n" + body + "\n\n" + help)
 }
 
 func (h *HighlightedRenderer) highlightLine(line string, lineNum int) string {
