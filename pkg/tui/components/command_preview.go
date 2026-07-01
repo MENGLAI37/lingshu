@@ -32,6 +32,8 @@ type CommandPreview struct {
 	selectedIdx   int
 	buttons       []string
 	width         int
+	scrollPos     int
+	showFullImpact bool
 }
 
 type PreflightCheck struct {
@@ -69,10 +71,10 @@ func (c *CommandPreview) Update(msg tea.Msg) (*CommandPreview, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		switch msg.Type {
-		case tea.KeyLeft, tea.KeyTab:
+		case tea.KeyLeft, tea.KeyShiftTab:
 			c.selectedIdx = (c.selectedIdx + 1) % len(c.buttons)
 			return c, nil
-		case tea.KeyRight, tea.KeyShiftTab:
+		case tea.KeyRight, tea.KeyTab:
 			c.selectedIdx = (c.selectedIdx - 1 + len(c.buttons)) % len(c.buttons)
 			return c, nil
 		case tea.KeyEnter:
@@ -104,6 +106,20 @@ func (c *CommandPreview) Update(msg tea.Msg) (*CommandPreview, tea.Cmd) {
 					return c, func() tea.Msg {
 						return ConfirmCancelledMsg{}
 					}
+				case "v":
+					// Toggle full impact analysis view
+					c.showFullImpact = !c.showFullImpact
+					return c, nil
+				case "j", "down":
+					// Scroll down (for content overflow)
+					c.scrollPos++
+					return c, nil
+				case "k", "up":
+					// Scroll up (for content overflow)
+					if c.scrollPos > 0 {
+						c.scrollPos--
+					}
+					return c, nil
 				}
 			}
 		case tea.KeyEsc:
@@ -199,6 +215,8 @@ func (c *CommandPreview) Show(cmd string, risk RiskLevel, desc string, impact st
 	c.confirmed = false
 	c.cancelled = false
 	c.selectedIdx = 0
+	c.scrollPos = 0
+	c.showFullImpact = false
 }
 
 func (c *CommandPreview) Hide() {

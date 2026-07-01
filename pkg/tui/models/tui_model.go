@@ -264,22 +264,43 @@ func (m *TUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
-		// When configPanel is in editing mode, let it handle all keys first
-		if m.configPanel.Visible() && m.configPanel.IsEditing() {
-			m.configPanel, cmd = m.configPanel.Update(msg)
-			return m, cmd
+		// ============================================================
+		// L0: System-level shortcuts (highest priority)
+		// These work regardless of input focus state
+		// ============================================================
+
+		// Ctrl+C - Force quit (always available)
+		if msg.String() == "ctrl+c" {
+			return m, tea.Quit
 		}
 
-		// When input is focused, only handle Ctrl+C and Esc as global shortcuts.
-		// All other character keys (including 'c', 'q', '?') must fall through
-		// to the input so they can be typed normally.
-		if m.input.Focused() {
-			switch msg.String() {
-			case "ctrl+c":
-				return m, tea.Quit
-			case "esc":
+		// ============================================================
+		// L1: Normal mode (input NOT focused) - Global shortcuts
+		// ============================================================
+		if !m.input.Focused() {
+			// Ctrl+Q - Graceful quit (not available in Insert mode)
+			if msg.String() == "ctrl+q" {
+				if !m.commandPreview.Visible() && !m.highlighted.Visible() && !m.showHelp && !m.configPanel.Visible() {
+					return m, tea.Quit
+				}
+			}
+
+			// F1 / ? - Toggle help overlay
+			if msg.String() == "f1" || msg.String() == "?" {
+				if !m.commandPreview.Visible() && !m.highlighted.Visible() && !m.configPanel.Visible() {
+					m.showHelp = !m.showHelp
+					return m, nil
+				}
+			}
+
+			// Esc - Close topmost popup layer by layer
+			if msg.String() == "esc" {
 				if m.showHelp {
 					m.showHelp = false
+					return m, nil
+				}
+				if m.commandPreview.Visible() {
+					m.commandPreview.Hide()
 					return m, nil
 				}
 				if m.highlighted.Visible() {
@@ -291,40 +312,140 @@ func (m *TUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, nil
 				}
 			}
-			// Fall through to component updates; do NOT process 'c'/'q'/'?' shortcuts.
-		} else {
-			// Input is NOT focused: handle global shortcuts.
-			switch {
-			case msg.String() == "ctrl+c":
-				return m, tea.Quit
-			case msg.String() == "q":
+
+			// i / Enter - Focus input, enter Insert mode
+			if msg.String() == "i" || msg.String() == "enter" {
 				if !m.commandPreview.Visible() && !m.highlighted.Visible() && !m.showHelp && !m.configPanel.Visible() {
-					return m, tea.Quit
+					m.input.Focus()
+					return m, tea.Batch(cmd)
 				}
-			case msg.String() == "esc":
-				if m.showHelp {
-					m.showHelp = false
+			}
+
+			// j / ↓ - Scroll chat down
+			if msg.String() == "j" || msg.String() == "down" {
+				if !m.commandPreview.Visible() && !m.highlighted.Visible() && !m.showHelp && !m.configPanel.Visible() {
+					m.chatView.ScrollDown(1)
 					return m, nil
 				}
-				if m.highlighted.Visible() {
-					m.highlighted.Hide()
+			}
+
+			// k / ↑ - Scroll chat up
+			if msg.String() == "k" || msg.String() == "up" {
+				if !m.commandPreview.Visible() && !m.highlighted.Visible() && !m.showHelp && !m.configPanel.Visible() {
+					m.chatView.ScrollUp(1)
 					return m, nil
 				}
-				if m.configPanel.Visible() {
-					m.configPanel.Hide()
+			}
+
+			// Ctrl+D / PgDn - Scroll down half page
+			if msg.String() == "ctrl+d" || msg.Type == tea.KeyPgDown {
+				if !m.commandPreview.Visible() && !m.highlighted.Visible() && !m.showHelp && !m.configPanel.Visible() {
+					m.chatView.ScrollDown(m.chatView.Height() / 2)
 					return m, nil
 				}
-			case msg.String() == "?":
-				if !m.commandPreview.Visible() && !m.highlighted.Visible() && !m.configPanel.Visible() {
-					m.showHelp = !m.showHelp
+			}
+
+			// Ctrl+U / PgUp - Scroll up half page
+			if msg.String() == "ctrl+u" || msg.Type == tea.KeyPgUp {
+				if !m.commandPreview.Visible() && !m.highlighted.Visible() && !m.showHelp && !m.configPanel.Visible() {
+					m.chatView.ScrollUp(m.chatView.Height() / 2)
 					return m, nil
 				}
-			case msg.String() == "c":
+			}
+
+			// g / Home - Go to top
+			if msg.String() == "g" || msg.Type == tea.KeyHome {
+				if !m.commandPreview.Visible() && !m.highlighted.Visible() && !m.showHelp && !m.configPanel.Visible() {
+					m.chatView.ScrollToTop()
+					return m, nil
+				}
+			}
+
+			// G / End - Go to bottom
+			if msg.String() == "G" || msg.Type == tea.KeyEnd {
+				if !m.commandPreview.Visible() && !m.highlighted.Visible() && !m.showHelp && !m.configPanel.Visible() {
+					m.chatView.ScrollToBottom()
+					return m, nil
+				}
+			}
+
+			// / - Open search
+			if msg.String() == "/" {
+				// TODO: Implement search feature
+				return m, nil
+			}
+
+			// n - Next search result
+			if msg.String() == "n" {
+				// TODO: Implement search navigation
+				return m, nil
+			}
+
+			// N - Previous search result
+			if msg.String() == "N" {
+				// TODO: Implement search navigation
+				return m, nil
+			}
+
+			// c - Open config panel
+			if msg.String() == "c" {
 				if !m.commandPreview.Visible() && !m.highlighted.Visible() && !m.showHelp {
 					m.configPanel.Show()
 					return m, nil
 				}
 			}
+
+			// t - Cycle theme
+			if msg.String() == "t" {
+				if !m.commandPreview.Visible() && !m.highlighted.Visible() && !m.showHelp && !m.configPanel.Visible() {
+					currentTheme := m.theme.Name
+					switch currentTheme {
+					case theme.ThemeDark:
+						m.SetTheme(theme.ThemeLight)
+					case theme.ThemeLight:
+						m.SetTheme(theme.ThemeHighContrast)
+					default:
+						m.SetTheme(theme.ThemeDark)
+					}
+					return m, nil
+				}
+			}
+
+			// r - Reload agent loop
+			if msg.String() == "r" {
+				if !m.commandPreview.Visible() && !m.highlighted.Visible() && !m.showHelp && !m.configPanel.Visible() {
+					m.reinitAgentLoop()
+					return m, nil
+				}
+			}
+
+			// m - Toggle input mode (single/multi line)
+			if msg.String() == "m" {
+				// TODO: Implement input mode toggle
+				return m, nil
+			}
+		}
+
+		// ============================================================
+		// L2: Insert mode (input focused) - Global shortcuts only
+		// Text editing shortcuts (Ctrl+A/E/K/U/W, etc.) are handled
+		// by the textarea component itself
+		// ============================================================
+		if m.input.Focused() {
+			// Esc - Exit Insert mode, return to Normal mode
+			if msg.String() == "esc" {
+				m.input.Blur()
+				return m, nil
+			}
+
+			// Ctrl+L - Clear input
+			if msg.String() == "ctrl+l" {
+				m.input.SetValue("")
+				return m, nil
+			}
+
+			// Let textarea handle all other keys (↑/↓ for history,
+			// Ctrl+A/E/K/U/W for editing, etc.)
 		}
 
 	case tea.WindowSizeMsg:
@@ -526,34 +647,67 @@ func (m *TUIModel) renderBody() string {
 func (m *TUIModel) overlayHelp(content string) string {
 	helpContent := `
 ╔══════════════════════════════════════════════════════════════╗
-║                       快捷键帮助                             ║
+║                    LingShu TUI 快捷键速查                    ║
 ╠══════════════════════════════════════════════════════════════╣
 ║                                                              ║
-║  基础操作:                                                   ║
-║    Enter        - 发送消息                                   ║
-║    Shift+Enter  - 换行                                       ║
-║    ↑/↓          - 浏览历史记录                               ║
+║  全局 (任何模式)                                              ║
+║    Ctrl+C       强制退出程序                                 ║
+║    Ctrl+Q       优雅退出程序                                 ║
+║    F1 / ?       显示/隐藏帮助                                ║
+║    Esc          关闭弹窗/返回上层                            ║
 ║                                                              ║
-║  导航:                                                       ║
-║    ?            - 显示/隐藏帮助                              ║
-║    Esc          - 关闭弹窗/取消操作                          ║
-║    Ctrl+C / q   - 退出程序                                   ║
+║  Normal 模式 (输入框未聚焦)                                   ║
+║    i / Enter    开始输入 (进入 Insert 模式)                   ║
+║    j / ↓        向下滚动一行                                 ║
+║    k / ↑        向上滚动一行                                 ║
+║    Ctrl+D / PgDn  向下翻半页                                 ║
+║    Ctrl+U / PgUp  向上翻半页                                  ║
+║    g / Home      跳转到顶部                                   ║
+║    G / End       跳转到底部                                   ║
+║    /            打开搜索                                     ║
+║    n / N        搜索结果上/下                                ║
+║    c            打开配置面板                                 ║
+║    t            切换主题                                     ║
+║    r            重新初始化 Agent                             ║
 ║                                                              ║
-║  命令预览:                                                   ║
-║    Y            - 确认执行                                   ║
-║    N / Esc      - 取消执行                                   ║
-║    Tab / ←/→    - 切换按钮                                   ║
+║  Insert 模式 (输入框聚焦)                                     ║
+║    Enter        发送消息                                     ║
+║    Shift+Enter  换行 (不发送)                                ║
+║    Esc          退出输入模式                                 ║
+║    ↑/↓         上下翻历史记录                               ║
+║    Ctrl+P       上一条历史                                   ║
+║    Ctrl+N       下一条历史                                   ║
+║    Ctrl+A / E   光标到行首/行尾                             ║
+║    Ctrl+K / U   删除到行尾/删除整行                         ║
+║    Ctrl+L       清空输入框                                   ║
 ║                                                              ║
-║  代码查看器:                                                 ║
-║    ↑/↓          - 上下移动                                   ║
-║    Space/Enter  - 折叠/展开                                  ║
-║    PgUp/PgDn    - 翻页                                       ║
-║    Home/End     - 跳转到开头/结尾                            ║
-║    Esc          - 关闭                                       ║
+║  命令预览弹窗                                                ║
+║    Y / Enter    确认执行                                     ║
+║    N / Esc      取消执行                                     ║
+║    Tab / ←/→   切换按钮焦点                                 ║
+║    j/k / ↑/↓   滚动内容                                     ║
+║    v            查看完整影响分析                             ║
 ║                                                              ║
-║  聊天区域:                                                   ║
-║    PgUp/PgDn    - 滚动聊天                                   ║
-║    Home/End     - 跳转到开头/结尾                            ║
+║  代码查看器                                                  ║
+║    j/k / ↑/↓   上下移动                                     ║
+║    h/l / ←/→   左右滚动 (长行)                              ║
+║    Space / Ctrl+F / PgDn  向下翻页                           ║
+║    Ctrl+B / PgUp  向上翻页                                   ║
+║    g / Home      跳转到顶部                                   ║
+║    G / End       跳转到底部                                   ║
+║    Enter / o     折叠/展开当前区域                           ║
+║    z            折叠/展开所有区域                            ║
+║    y            复制当前行                                   ║
+║    q            关闭查看器                                   ║
+║                                                              ║
+║  配置面板                                                    ║
+║    j/k / ↑/↓   选择 Provider                                ║
+║    Enter / e    编辑选中项                                   ║
+║    a / n        添加新 Provider                              ║
+║    d / x        删除选中项                                   ║
+║    s / Ctrl+S   保存配置                                     ║
+║    r            重新加载配置                                 ║
+║    q / Esc      关闭面板                                     ║
 ║                                                              ║
 ╚══════════════════════════════════════════════════════════════╝
 `
