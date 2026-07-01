@@ -50,6 +50,11 @@ func (c *ConfigPanel) Init() tea.Cmd {
 	return nil
 }
 
+// IsEditing returns true if the panel is in edit or add mode
+func (c *ConfigPanel) IsEditing() bool {
+	return c.mode == modeEdit || c.mode == modeAdd
+}
+
 func (c *ConfigPanel) Update(msg tea.Msg) (*ConfigPanel, tea.Cmd) {
 	if !c.visible {
 		return c, nil
