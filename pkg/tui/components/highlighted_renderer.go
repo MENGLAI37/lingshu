@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/atotto/clipboard"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/lingshu/lingshu/pkg/tui/styles"
@@ -28,6 +29,7 @@ type HighlightedRenderer struct {
 	height       int
 	lines        []string
 	scrollPos    int
+	hScrollPos   int // horizontal scroll position
 	collapsed    map[int]bool
 	collapsible  []int
 	toggleMode   bool //nolint:unused
@@ -62,26 +64,36 @@ func (h *HighlightedRenderer) Update(msg tea.Msg) (*HighlightedRenderer, tea.Cmd
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		switch msg.Type {
-		case tea.KeyUp:
+		case tea.KeyUp, tea.KeyCtrlK:
 			if h.selectedLine > 0 {
 				h.selectedLine--
 				h.ensureVisible()
 			}
 			return h, nil
-		case tea.KeyDown:
+		case tea.KeyDown, tea.KeyCtrlJ:
 			if h.selectedLine < len(h.lines)-1 {
 				h.selectedLine++
 				h.ensureVisible()
 			}
 			return h, nil
-		case tea.KeyPgUp:
+		case tea.KeyLeft, tea.KeyCtrlH:
+			// Scroll left (for long lines)
+			if h.hScrollPos > 0 {
+				h.hScrollPos--
+			}
+			return h, nil
+		case tea.KeyRight, tea.KeyCtrlL:
+			// Scroll right (for long lines)
+			h.hScrollPos++
+			return h, nil
+		case tea.KeyPgUp, tea.KeyCtrlB:
 			h.scrollPos -= h.height / 2
 			if h.scrollPos < 0 {
 				h.scrollPos = 0
 			}
 			h.selectedLine = h.scrollPos
 			return h, nil
-		case tea.KeyPgDown:
+		case tea.KeyPgDown, tea.KeyCtrlF:
 			h.scrollPos += h.height / 2
 			maxScroll := maxInt(0, len(h.lines)-h.height)
 			if h.scrollPos > maxScroll {
@@ -89,18 +101,74 @@ func (h *HighlightedRenderer) Update(msg tea.Msg) (*HighlightedRenderer, tea.Cmd
 			}
 			h.selectedLine = h.scrollPos
 			return h, nil
-		case tea.KeySpace, tea.KeyEnter:
+		case tea.KeySpace:
 			if h.isCollapsible(h.selectedLine) {
 				h.toggleFold(h.selectedLine)
 			}
 			return h, nil
+		case tea.KeyEnter, tea.KeyRunes:
+			if msg.Type == tea.KeyEnter || (len(msg.Runes) > 0 && msg.Runes[0] == 'o') {
+				if h.isCollapsible(h.selectedLine) {
+					h.toggleFold(h.selectedLine)
+				}
+				return h, nil
+			}
+			// Handle other rune keys
+			if len(msg.Runes) > 0 {
+				switch msg.Runes[0] {
+				case 'j':
+					if h.selectedLine < len(h.lines)-1 {
+						h.selectedLine++
+						h.ensureVisible()
+					}
+					return h, nil
+				case 'k':
+					if h.selectedLine > 0 {
+						h.selectedLine--
+						h.ensureVisible()
+					}
+					return h, nil
+				case 'h':
+					if h.hScrollPos > 0 {
+						h.hScrollPos--
+					}
+					return h, nil
+				case 'l':
+					h.hScrollPos++
+					return h, nil
+				case 'g':
+					h.scrollPos = 0
+					h.selectedLine = 0
+					h.hScrollPos = 0
+					return h, nil
+				case 'G':
+					h.scrollPos = maxInt(0, len(h.lines)-h.height)
+					h.selectedLine = len(h.lines) - 1
+					return h, nil
+				case 'z':
+					// Fold/unfold all
+					h.toggleAllFolds()
+					return h, nil
+				case 'y':
+					// Yank (copy) selected line to clipboard
+					h.copySelectedLine()
+					return h, nil
+				case 'q':
+					h.visible = false
+					return h, nil
+				}
+			}
 		case tea.KeyHome:
 			h.scrollPos = 0
 			h.selectedLine = 0
+			h.hScrollPos = 0
 			return h, nil
 		case tea.KeyEnd:
 			h.scrollPos = maxInt(0, len(h.lines)-h.height)
 			h.selectedLine = len(h.lines) - 1
+			return h, nil
+		case tea.KeyEsc:
+			h.visible = false
 			return h, nil
 		}
 
@@ -460,6 +528,36 @@ func (h *HighlightedRenderer) SetWidth(w int) {
 
 func (h *HighlightedRenderer) SetHeight(hgt int) {
 	h.height = hgt
+}
+
+func (h *HighlightedRenderer) toggleAllFolds() {
+	if len(h.collapsed) == 0 {
+		// All are collapsed, so expand all
+		for _, line := range h.collapsible {
+			h.collapsed[line] = false
+		}
+	} else {
+		// Toggle all: if any is collapsed, expand all; otherwise collapse all
+		anyCollapsed := false
+		for _, line := range h.collapsible {
+			if h.collapsed[line] {
+				anyCollapsed = true
+				break
+			}
+		}
+		for _, line := range h.collapsible {
+			h.collapsed[line] = !anyCollapsed
+		}
+	}
+}
+
+func (h *HighlightedRenderer) copySelectedLine() {
+	if h.selectedLine >= 0 && h.selectedLine < len(h.lines) {
+		line := h.lines[h.selectedLine]
+		if err := clipboard.WriteAll(line); err != nil {
+			// Silently fail if clipboard is not available
+		}
+	}
 }
 
 func FormatJSON(data interface{}) (string, error) {
