@@ -195,17 +195,27 @@ func (r *Router) UpdateProviders(configs []ProviderConfig) {
 func (r *Router) tryComplete(ctx context.Context, provider Provider, req *CompletionRequest) (*CompletionResponse, error) {
 	start := time.Now()
 
-	providerCtx := ctx
-	for _, cfg := range r.configs {
-		if cfg.Name == provider.Name() && cfg.Timeout >= time.Second {
-			var cancel context.CancelFunc
-			providerCtx, cancel = context.WithTimeout(ctx, cfg.Timeout)
-			defer cancel()
+	var providerCfg *ProviderConfig
+	for i := range r.configs {
+		if r.configs[i].Name == provider.Name() {
+			providerCfg = &r.configs[i]
 			break
 		}
 	}
 
-	resp, err := provider.Complete(providerCtx, req)
+	providerCtx := ctx
+	if providerCfg != nil && providerCfg.Timeout >= time.Second {
+		var cancel context.CancelFunc
+		providerCtx, cancel = context.WithTimeout(ctx, providerCfg.Timeout)
+		defer cancel()
+	}
+
+	reqCopy := *req
+	if reqCopy.Model == "" && providerCfg != nil && providerCfg.Model != "" {
+		reqCopy.Model = providerCfg.Model
+	}
+
+	resp, err := provider.Complete(providerCtx, &reqCopy)
 	latency := time.Since(start)
 
 	if r.metrics != nil {
@@ -220,17 +230,27 @@ func (r *Router) tryComplete(ctx context.Context, provider Provider, req *Comple
 }
 
 func (r *Router) tryStream(ctx context.Context, provider Provider, req *CompletionRequest) (<-chan StreamChunk, error) {
-	providerCtx := ctx
-	for _, cfg := range r.configs {
-		if cfg.Name == provider.Name() && cfg.Timeout >= time.Second {
-			var cancel context.CancelFunc
-			providerCtx, cancel = context.WithTimeout(ctx, cfg.Timeout)
-			defer cancel()
+	var providerCfg *ProviderConfig
+	for i := range r.configs {
+		if r.configs[i].Name == provider.Name() {
+			providerCfg = &r.configs[i]
 			break
 		}
 	}
 
-	return provider.Stream(providerCtx, req)
+	providerCtx := ctx
+	if providerCfg != nil && providerCfg.Timeout >= time.Second {
+		var cancel context.CancelFunc
+		providerCtx, cancel = context.WithTimeout(ctx, providerCfg.Timeout)
+		defer cancel()
+	}
+
+	reqCopy := *req
+	if reqCopy.Model == "" && providerCfg != nil && providerCfg.Model != "" {
+		reqCopy.Model = providerCfg.Model
+	}
+
+	return provider.Stream(providerCtx, &reqCopy)
 }
 
 func (r *Router) getProviders() []Provider {
