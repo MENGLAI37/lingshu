@@ -109,9 +109,29 @@ func NewTUIModel() *TUIModel {
 		msgChan:        make(chan tea.Msg, 100),
 	}
 
+	m.addWelcomeMessage()
 	m.initAgentLoop()
 
 	return m
+}
+
+func (m *TUIModel) addWelcomeMessage() {
+	welcome := "欢迎使用 LingShu AI-native SRE Agent！\n\n" +
+		"我可以帮你：\n" +
+		"  • 排查 Kubernetes 集群问题\n" +
+		"  • 查看 Pod 状态、日志、事件\n" +
+		"  • 执行安全的运维操作（扩容、重启等）\n\n" +
+		"快捷键提示：\n" +
+		"  按 F1 或 ? 查看完整快捷键列表\n" +
+		"  按 c 打开配置面板（配置 LLM Provider）\n" +
+		"  按 i 或 Enter 开始输入问题\n\n" +
+		"试试输入：排查 nginx Pod 重启原因"
+
+	m.chatView.AddMessage(components.ChatMessage{
+		Role:      components.RoleSystem,
+		Content:   welcome,
+		Timestamp: time.Now(),
+	})
 }
 
 // initAgentLoop initializes the Agent Loop with K8s tools and LLM
@@ -1158,12 +1178,48 @@ func (m *TUIModel) SetEnvironment(env string) {
 func (m *TUIModel) SetTheme(themeName theme.ThemeName) {
 	m.theme = theme.GetTheme(themeName)
 	m.styles = styles.NewStyles(m.theme)
+
+	inputFocused := m.input.Focused()
+	inputValue := m.input.Value()
+
 	m.chatView = components.NewChatView(m.styles)
 	m.input = components.NewMultiLineInput(m.styles)
 	m.statusBar = components.NewStatusBar(m.styles)
 	m.commandPreview = components.NewCommandPreview(m.styles)
 	m.highlighted = components.NewHighlightedRenderer(m.styles)
 	m.configPanel = components.NewConfigPanel(m.styles)
+
+	if m.width > 0 && m.height > 0 {
+		headerHeight := 3
+		footerHeight := 1
+		inputHeight := 5
+		bodyHeight := m.height - headerHeight - footerHeight - inputHeight
+
+		m.chatView.SetWidth(m.width - 4)
+		m.chatView.SetHeight(bodyHeight - 2)
+
+		m.input.SetWidth(m.width)
+		m.statusBar.SetWidth(m.width)
+
+		m.highlighted.SetWidth(m.width - 10)
+		m.highlighted.SetHeight(m.height - 10)
+	}
+
+	m.statusBar.SetCluster(m.cluster)
+	m.statusBar.SetNamespace(m.namespace)
+	m.statusBar.SetEnvironment(m.environment)
+
+	cfg := config.GetCurrentProviderConfig()
+	if cfg != nil {
+		m.statusBar.SetLLMProvider(cfg.Name)
+	}
+
+	if inputFocused {
+		m.input.Focus()
+	}
+	if inputValue != "" {
+		m.input.SetValue(inputValue)
+	}
 }
 
 func (m *TUIModel) reinitAgentLoop() {
