@@ -270,8 +270,9 @@ func (m *TUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, cmd
 		}
 
-		// When input is focused, only handle Ctrl+C and Esc
-		// (other character keys should go to the input for normal typing)
+		// When input is focused, only handle Ctrl+C and Esc as global shortcuts.
+		// All other character keys (including 'c', 'q', '?') must fall through
+		// to the input so they can be typed normally.
 		if m.input.Focused() {
 			switch msg.String() {
 			case "ctrl+c":
@@ -290,38 +291,39 @@ func (m *TUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, nil
 				}
 			}
-			break // Skip the rest, let input handle the key
-		}
-
-		switch {
-		case msg.String() == "ctrl+c":
-			return m, tea.Quit
-		case msg.String() == "q":
-			if !m.commandPreview.Visible() && !m.highlighted.Visible() && !m.showHelp && !m.configPanel.Visible() {
+			// Fall through to component updates; do NOT process 'c'/'q'/'?' shortcuts.
+		} else {
+			// Input is NOT focused: handle global shortcuts.
+			switch {
+			case msg.String() == "ctrl+c":
 				return m, tea.Quit
-			}
-		case msg.String() == "esc":
-			if m.showHelp {
-				m.showHelp = false
-				return m, nil
-			}
-			if m.highlighted.Visible() {
-				m.highlighted.Hide()
-				return m, nil
-			}
-			if m.configPanel.Visible() {
-				m.configPanel.Hide()
-				return m, nil
-			}
-		case msg.String() == "?":
-			if !m.commandPreview.Visible() && !m.highlighted.Visible() && !m.configPanel.Visible() {
-				m.showHelp = !m.showHelp
-				return m, nil
-			}
-		case msg.String() == "c":
-			if !m.commandPreview.Visible() && !m.highlighted.Visible() && !m.showHelp {
-				m.configPanel.Show()
-				return m, nil
+			case msg.String() == "q":
+				if !m.commandPreview.Visible() && !m.highlighted.Visible() && !m.showHelp && !m.configPanel.Visible() {
+					return m, tea.Quit
+				}
+			case msg.String() == "esc":
+				if m.showHelp {
+					m.showHelp = false
+					return m, nil
+				}
+				if m.highlighted.Visible() {
+					m.highlighted.Hide()
+					return m, nil
+				}
+				if m.configPanel.Visible() {
+					m.configPanel.Hide()
+					return m, nil
+				}
+			case msg.String() == "?":
+				if !m.commandPreview.Visible() && !m.highlighted.Visible() && !m.configPanel.Visible() {
+					m.showHelp = !m.showHelp
+					return m, nil
+				}
+			case msg.String() == "c":
+				if !m.commandPreview.Visible() && !m.highlighted.Visible() && !m.showHelp {
+					m.configPanel.Show()
+					return m, nil
+				}
 			}
 		}
 
