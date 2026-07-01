@@ -663,9 +663,6 @@ func (m *TUIModel) renderBody() string {
 		chatAreaHeight = 3
 	}
 
-	chatH := m.chatView.Height()
-	bodyHeight := chatH + 2 // +2 for padding(1,2)
-
 	body := lipgloss.NewStyle().
 		Padding(0, 2).
 		Height(chatAreaHeight).
@@ -685,17 +682,6 @@ func (m *TUIModel) renderBody() string {
 		separator,
 		inputSection,
 	)
-}
-
-func ensureHeight(s string, height int) string {
-	lines := strings.Split(s, "\n")
-	for len(lines) < height {
-		lines = append(lines, "")
-	}
-	if len(lines) > height {
-		lines = lines[:height]
-	}
-	return strings.Join(lines, "\n")
 }
 
 func (m *TUIModel) overlayHelp(content string) string {
