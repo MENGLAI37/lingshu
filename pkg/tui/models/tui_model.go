@@ -792,19 +792,29 @@ func (m *TUIModel) handleUserInput(input string) {
 func (m *TUIModel) runAgentLoop(userInput string) {
 	ctx := context.Background()
 
+	responseStarted := false
+
 	// Create event handler to process agent events
 	eventHandler := func(event agent.LoopEvent) {
 		switch event.Type {
 		case "thinking":
 			if thought, ok := event.Data.(string); ok {
-				m.SendMessage(AIResponseMsg{Content: thought + "\n\n", Done: false})
+				if !responseStarted {
+					m.SendMessage(AIResponseMsg{Content: thought, Done: false})
+					responseStarted = true
+				}
 			}
 		case "state_change":
 			switch event.State {
 			case agent.StateExecuting:
-				m.SendMessage(AIResponseMsg{Content: "正在执行工具...\n\n", Done: false})
+				if !responseStarted {
+					m.SendMessage(AIResponseMsg{Content: "正在执行工具...\n\n", Done: false})
+					responseStarted = true
+				} else {
+					m.SendMessage(AIResponseMsg{Content: "\n正在执行工具...\n\n", Done: false})
+				}
 			case agent.StateObserving:
-				m.SendMessage(AIResponseMsg{Content: "分析结果...\n\n", Done: false})
+				m.SendMessage(AIResponseMsg{Content: "\n分析结果中...\n\n", Done: false})
 			}
 		case "tool_result":
 			if result, ok := event.Data.(agent.ToolExecutionResult); ok {
@@ -813,7 +823,7 @@ func (m *TUIModel) runAgentLoop(userInput string) {
 			}
 		case "error":
 			if err, ok := event.Data.(error); ok {
-				m.SendMessage(AIResponseMsg{Content: fmt.Sprintf("错误: %v\n\n", err), Done: true})
+				m.SendMessage(AIResponseMsg{Content: fmt.Sprintf("\n错误: %v\n\n", err), Done: true})
 			}
 		}
 	}
@@ -831,17 +841,23 @@ func (m *TUIModel) runAgentLoop(userInput string) {
 		return
 	}
 
-	// Send final response
-	if result.FinalResponse != "" {
+	// Send final response only if we haven't shown it via thinking events
+	// (when there are tool calls, the final response is the summary after all iterations)
+	if result.FinalResponse != "" && !responseStarted {
+		m.SendMessage(AIResponseMsg{
+			Content: result.FinalResponse + "\n",
+			Done:    true,
+		})
+	} else if result.FinalResponse != "" {
 		m.SendMessage(AIResponseMsg{
 			Content: "\n" + result.FinalResponse + "\n",
 			Done:    true,
 		})
-	} else if len(result.ToolResults) > 0 {
+	} else if len(result.ToolResults) > 0 && !responseStarted {
 		// Generate summary from tool results
 		summary := m.generateDiagnosisSummary(result.ToolResults)
 		m.SendMessage(AIResponseMsg{
-			Content: "\n" + summary + "\n",
+			Content: summary + "\n",
 			Done:    true,
 		})
 	}

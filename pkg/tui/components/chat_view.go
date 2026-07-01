@@ -176,22 +176,22 @@ func wrapText(text string, width int) []string {
 			continue
 		}
 
-		words := strings.Fields(para)
 		currentLine := ""
 		currentLen := 0
 
-		for _, word := range words {
-			wordLen := lipgloss.Width(word)
-			if currentLen == 0 {
-				currentLine = word
-				currentLen = wordLen
-			} else if currentLen+1+wordLen <= width {
-				currentLine += " " + word
-				currentLen += 1 + wordLen
-			} else {
+		for _, r := range para {
+			charLen := 1
+			if r >= 0x4e00 && r <= 0x9fff || r >= 0x3000 && r <= 0x303f || r >= 0xff00 && r <= 0xffef {
+				charLen = 2
+			}
+
+			if currentLen+charLen > width && currentLen > 0 {
 				lines = append(lines, currentLine)
-				currentLine = word
-				currentLen = wordLen
+				currentLine = string(r)
+				currentLen = charLen
+			} else {
+				currentLine += string(r)
+				currentLen += charLen
 			}
 		}
 

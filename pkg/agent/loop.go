@@ -62,11 +62,13 @@ func (al *DefaultAgentLoop) Execute(ctx context.Context, input string, handler L
 	return al.ExecuteWithTools(ctx, input, nil, handler)
 }
 
+// Reset clears the conversation context, starting a fresh conversation.
+func (al *DefaultAgentLoop) Reset() {
+	al.contextManager.Reset()
+}
+
 // ExecuteWithTools runs the agent loop with optional additional tools.
 func (al *DefaultAgentLoop) ExecuteWithTools(ctx context.Context, input string, extraTools []tools.Tool, handler LoopEventHandler) (*LoopResult, error) {
-	// Reset context for new execution
-	al.contextManager.Reset()
-
 	// Register extra tools if provided
 	if extraTools != nil {
 		for _, tool := range extraTools {
@@ -473,5 +475,6 @@ Guidelines:
 - For risky operations (L2+), explain the impact before executing
 - If you encounter errors, try alternative approaches
 - Keep responses concise and focused on the user's request
-
-Respond with clear analysis and use tool_call when you need to execute operations.`
+- Use the provided function calling tools to execute operations
+- Do NOT output kubectl commands or code blocks as a substitute for tool calls
+- ALWAYS use the function calling mechanism when you need to execute operations`
