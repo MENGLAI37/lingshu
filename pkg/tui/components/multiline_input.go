@@ -68,7 +68,7 @@ func (m *MultiLineInput) Update(msg tea.Msg) (*MultiLineInput, tea.Cmd) {
 					}
 				}
 			}
-		case tea.KeyUp:
+		case tea.KeyUp, tea.KeyCtrlP:
 			if m.focused && len(m.history) > 0 {
 				if m.historyIdx < len(m.history)-1 {
 					m.historyIdx++
@@ -76,7 +76,7 @@ func (m *MultiLineInput) Update(msg tea.Msg) (*MultiLineInput, tea.Cmd) {
 				}
 				return m, nil
 			}
-		case tea.KeyDown:
+		case tea.KeyDown, tea.KeyCtrlN:
 			if m.focused && len(m.history) > 0 {
 				if m.historyIdx > 0 {
 					m.historyIdx--

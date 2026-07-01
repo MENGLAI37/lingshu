@@ -115,17 +115,27 @@ func (c *ConfigPanel) handleListMode(msg tea.KeyMsg) (*ConfigPanel, tea.Cmd) {
 	case tea.KeyRunes:
 		if len(msg.Runes) > 0 {
 			switch string(msg.Runes[0]) {
-			case "a", "A":
+			case "a", "A", "n", "N":
 				c.mode = modeAdd
 				c.selectedIndex = -1
 				c.initAddFields()
 				return c, c.inputFields[0].Focus()
-			case "d", "D":
+			case "d", "D", "x", "X":
 				if len(c.providers) > 0 {
 					return c, c.deleteProvider()
 				}
 			case "s", "S":
 				return c, c.saveConfig()
+			case "e", "E":
+				if len(c.providers) > 0 {
+					c.mode = modeEdit
+					c.selectedIndex = c.currentIndex
+					c.initEditFields()
+					return c, c.inputFields[0].Focus()
+				}
+			case "r", "R":
+				c.loadProviders()
+				return c, nil
 			}
 		}
 	case tea.KeyEsc:
@@ -151,6 +161,9 @@ func (c *ConfigPanel) handleEditMode(msg tea.KeyMsg) (*ConfigPanel, tea.Cmd) {
 	case tea.KeyCtrlS:
 		// Ctrl+S saves the config (more reliable than Alt+Enter in some terminals)
 		return c, c.saveConfig()
+	case tea.KeyCtrlA:
+		// Ctrl+A: select all text in current field
+		c.selectAllCurrentField()
 	case tea.KeyEsc:
 		c.mode = modeList
 		c.errMsg = ""
@@ -178,6 +191,15 @@ func (c *ConfigPanel) insertIntoFocusedField(text string) {
 		if c.inputFields[i].Focused() {
 			currentValue := c.inputFields[i].Value()
 			c.inputFields[i].SetValue(currentValue + text)
+			return
+		}
+	}
+}
+
+func (c *ConfigPanel) selectAllCurrentField() {
+	for i := range c.inputFields {
+		if c.inputFields[i].Focused() {
+			c.inputFields[i].SetValue(c.inputFields[i].Value())
 			return
 		}
 	}

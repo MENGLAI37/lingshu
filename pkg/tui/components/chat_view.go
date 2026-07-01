@@ -320,6 +320,14 @@ func (c *ChatView) ScrollDown(n int) {
 	}
 }
 
+func (c *ChatView) ScrollToTop() {
+	c.scrollPos = 0
+}
+
+func (c *ChatView) ScrollToBottom() {
+	c.scrollToBottom()
+}
+
 func (c *ChatView) Clear() {
 	c.messages = []ChatMessage{}
 	c.scrollPos = 0
@@ -335,4 +343,8 @@ func (c *ChatView) SetWidth(w int) {
 
 func (c *ChatView) SetHeight(h int) {
 	c.height = h
+}
+
+func (c *ChatView) Height() int {
+	return c.height
 }
