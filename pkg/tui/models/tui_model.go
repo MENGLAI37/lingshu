@@ -129,9 +129,7 @@ func (m *TUIModel) initAgentLoop() {
 	if os.Getenv("KUBECONFIG") != "" || kubeconfigPath != "" {
 		var err error
 		k8sClient, err = k8s.NewClientManager(kubeconfigPath)
-		if err != nil {
-			fmt.Printf("Warning: Failed to initialize K8s client: %v\n", err)
-		} else {
+		if err == nil {
 			m.k8sClient = k8sClient
 		}
 	}
@@ -140,7 +138,6 @@ func (m *TUIModel) initAgentLoop() {
 	llmRouter := m.createLLMRouter(cfg)
 
 	if llmRouter == nil {
-		fmt.Println("Warning: No LLM provider configured, Agent Loop will not be available")
 		return
 	}
 
@@ -150,7 +147,7 @@ func (m *TUIModel) initAgentLoop() {
 		// Get the default context clientset
 		clientset, err := m.k8sClient.GetClientSet(context.Background(), "")
 		if err != nil {
-			fmt.Printf("Warning: Failed to get clientset: %v\n", err)
+			// silently ignore k8s errors in TUI mode
 		} else {
 			// Register L0 tools (read-only)
 			_ = toolRegistry.RegisterTool(l0.NewGetTool(clientset))
@@ -183,14 +180,10 @@ func (m *TUIModel) initAgentLoop() {
 
 // createLLMRouter creates an LLM router from config or environment
 func (m *TUIModel) createLLMRouter(cfg *config.Config) *llm.Router {
-	err := config.LoadLLMConfig()
-	if err != nil {
-		fmt.Printf("Warning: Failed to load LLM config: %v\n", err)
-	}
+	_ = config.LoadLLMConfig()
 
 	providerConfig := config.GetCurrentProviderConfig()
 	if providerConfig == nil {
-		fmt.Println("Note: No LLM provider configured, running in demo mode")
 		m.statusBar.SetLLMProvider("未配置")
 		return nil
 	}
@@ -457,13 +450,28 @@ func (m *TUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 
-		headerHeight := 3
-		footerHeight := 1
-		inputHeight := 5
-		bodyHeight := m.height - headerHeight - footerHeight - inputHeight
+		// 精确布局高度分配
+		const (
+			headerHeight    = 1
+			footerHeight    = 1
+			separatorHeight = 1
+			bodyPadding     = 2
+		)
+
+		// 获取输入区域实际高度（prompt 1行 + textarea 高度）
+		inputAreaStr := m.input.View()
+		inputLines := strings.Count(inputAreaStr, "\n") + 1
+		if inputLines < 4 {
+			inputLines = 4
+		}
+
+		chatHeight := m.height - headerHeight - footerHeight - separatorHeight - inputLines - bodyPadding
+		if chatHeight < 3 {
+			chatHeight = 3
+		}
 
 		m.chatView.SetWidth(m.width - 4)
-		m.chatView.SetHeight(bodyHeight - 2)
+		m.chatView.SetHeight(chatHeight)
 
 		m.input.SetWidth(m.width)
 		m.statusBar.SetWidth(m.width)
@@ -562,6 +570,9 @@ func (m *TUIModel) View() string {
 		footer,
 	)
 
+	// 确保恰好 m.height 行，防止屏幕残留
+	mainContent = ensureHeight(mainContent, m.height)
+
 	if m.showHelp {
 		return m.overlayHelp(mainContent)
 	}
@@ -628,18 +639,23 @@ func (m *TUIModel) renderBody() string {
 		Width(m.width).
 		Render(strings.Repeat("─", m.width))
 
-	bodyHeight := m.height - 8
-	if bodyHeight < 5 {
-		bodyHeight = 5
+	inputLines := strings.Count(inputArea, "\n") + 1
+	if inputLines < 4 {
+		inputLines = 4
 	}
+
+	chatH := m.chatView.Height()
+	bodyHeight := chatH + 2 // +2 for padding(1,2)
 
 	body := lipgloss.NewStyle().
 		Padding(1, 2).
 		Height(bodyHeight).
+		Width(m.width).
 		Render(chatArea)
 
 	inputSection := lipgloss.NewStyle().
-		Padding(1, 2).
+		Height(inputLines).
+		Width(m.width).
 		Render(inputArea)
 
 	return lipgloss.JoinVertical(lipgloss.Left,
@@ -1153,4 +1169,17 @@ func (m *TUIModel) SetTheme(themeName theme.ThemeName) {
 func (m *TUIModel) reinitAgentLoop() {
 	m.agentLoop = nil
 	m.initAgentLoop()
+}
+
+// ensureHeight 将内容截断或填充到恰好 height 行，防止终端屏幕残留
+func ensureHeight(content string, height int) string {
+	content = strings.TrimSuffix(content, "\n")
+	lines := strings.Split(content, "\n")
+	if len(lines) > height {
+		lines = lines[:height]
+	}
+	for len(lines) < height {
+		lines = append(lines, "")
+	}
+	return strings.Join(lines, "\n")
 }
