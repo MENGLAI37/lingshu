@@ -54,13 +54,17 @@ func (c *ConfigPanel) Update(msg tea.Msg) (*ConfigPanel, tea.Cmd) {
 		return c, nil
 	}
 
+	var cmds []tea.Cmd
+	var cmd tea.Cmd
+
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		switch c.mode {
 		case modeList:
 			return c.handleListMode(msg)
 		case modeEdit, modeAdd:
-			return c.handleEditMode(msg)
+			c, cmd = c.handleEditMode(msg)
+			cmds = append(cmds, cmd)
 		}
 	case tea.WindowSizeMsg:
 		c.width = msg.Width
@@ -68,16 +72,13 @@ func (c *ConfigPanel) Update(msg tea.Msg) (*ConfigPanel, tea.Cmd) {
 	}
 
 	if c.mode == modeEdit || c.mode == modeAdd {
-		var cmd tea.Cmd
-		var cmds []tea.Cmd
 		for i := range c.inputFields {
 			c.inputFields[i], cmd = c.inputFields[i].Update(msg)
 			cmds = append(cmds, cmd)
 		}
-		return c, tea.Batch(cmds...)
 	}
 
-	return c, nil
+	return c, tea.Batch(cmds...)
 }
 
 func (c *ConfigPanel) handleListMode(msg tea.KeyMsg) (*ConfigPanel, tea.Cmd) {
