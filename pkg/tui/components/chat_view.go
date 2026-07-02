@@ -287,7 +287,7 @@ func (c *ChatView) UpdateLastToolMessage(content string) {
 }
 
 func (c *ChatView) scrollToBottom() {
-	totalLines := c.countTotalLines()
+	totalLines := len(c.renderAllLines())
 	if totalLines > c.height {
 		c.scrollPos = totalLines - c.height
 	} else {
@@ -296,12 +296,7 @@ func (c *ChatView) scrollToBottom() {
 }
 
 func (c *ChatView) countTotalLines() int {
-	total := 0
-	for _, msg := range c.messages {
-		lines := wrapText(msg.Content, c.width-4)
-		total += len(lines) + 2
-	}
-	return total
+	return len(c.renderAllLines())
 }
 
 func (c *ChatView) ScrollUp(n int) {

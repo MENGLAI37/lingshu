@@ -72,6 +72,67 @@ func (p *ToolCallParser) Parse(fc *llm.FunctionCall) []ParsedToolCall {
 	return p.fallbackParser.Parse(fc.Name, fc.Arguments)
 }
 
+// ParseFromContent parses tool calls directly from text content.
+// This is used as a fallback when the model doesn't use structured function calling.
+func (p *ToolCallParser) ParseFromContent(content string) []ParsedToolCall {
+	if content == "" {
+		return nil
+	}
+
+	toolCalls := []ParsedToolCall{}
+
+	// 1. Try JSON code blocks with tool calls
+	jsonBlockPattern := regexp.MustCompile("(?s)```(?:json)?\\s*(\\{[^{}]*\"name\"\\s*:\\s*\"[^\"]+\"[^{}]*\\})\\s*```")
+	matches := jsonBlockPattern.FindAllStringSubmatch(content, -1)
+	for _, match := range matches {
+		if len(match) >= 2 {
+			args, err := p.parseArguments(match[1])
+			if err == nil {
+				if name, ok := args["name"].(string); ok {
+					toolArgs := map[string]any{}
+					if params, ok := args["parameters"].(map[string]any); ok {
+						toolArgs = params
+					}
+					toolCalls = append(toolCalls, ParsedToolCall{
+						Name:      name,
+						Arguments: toolArgs,
+						RawJSON:   match[1],
+					})
+				}
+			}
+		}
+	}
+
+	if len(toolCalls) > 0 {
+		return toolCalls
+	}
+
+	// 2. Try inline JSON patterns
+	matches = p.jsonPattern.FindAllStringSubmatch(content, -1)
+	for _, match := range matches {
+		if len(match) >= 2 {
+			fullMatch := match[0]
+			toolName := match[1]
+
+			args, err := p.parseArguments(fullMatch)
+			if err == nil {
+				toolCalls = append(toolCalls, ParsedToolCall{
+					Name:      toolName,
+					Arguments: args,
+					RawJSON:   fullMatch,
+				})
+			}
+		}
+	}
+
+	if len(toolCalls) > 0 {
+		return toolCalls
+	}
+
+	// 3. Try fallback parser on the full content
+	return p.fallbackParser.ParseFromText(content)
+}
+
 // parseStructured parses a properly formatted function call.
 func (p *ToolCallParser) parseStructured(fc *llm.FunctionCall) []ParsedToolCall {
 	// Direct function call with JSON arguments
@@ -197,15 +258,15 @@ type FallbackParser struct {
 func NewFallbackParser() *FallbackParser {
 	return &FallbackParser{
 		toolPatterns: map[string]*regexp.Regexp{
-			"k8s_get":        regexp.MustCompile(`(?i)get\s+(pod|deployment|service|event|configmap|ingress)\s+(\S+)(?:\s+in\s+(\S+))?`),
-			"k8s_describe":   regexp.MustCompile(`(?i)describe\s+(pod|deployment|service)\s+(\S+)(?:\s+in\s+(\S+))?`),
-			"k8s_logs":       regexp.MustCompile(`(?i)logs\s+for\s+pod\s+(\S+)(?:\s+in\s+(\S+))?`),
-			"k8s_events":     regexp.MustCompile(`(?i)events\s+(?:for\s+)?(\S+)?(?:\s+in\s+(\S+))?`),
-			"k8s_scale":      regexp.MustCompile(`(?i)scale\s+(deployment|statefulset)\s+(\S+)\s+to\s+(\d+)`),
-			"k8s_restart":    regexp.MustCompile(`(?i)restart\s+(deployment|statefulset)\s+(\S+)`),
-			"k8s_rollout":    regexp.MustCompile(`(?i)rollout\s+(undo|restart|status)\s+(deployment)\s+(\S+)`),
-			"k8s_status":     regexp.MustCompile(`(?i)status\s+of\s+(\S+)`),
-			"k8s_top":        regexp.MustCompile(`(?i)top\s+(pods|nodes)(?:\s+in\s+(\S+))?`),
+			"k8s_get":      regexp.MustCompile(`(?i)(?:get|list|show|查看|列出|获取)\s+(pod|pods|deployment|deployments|service|services|event|events|configmap|configmaps|ingress|ingresses|node|nodes|namespace|namespaces)(?:\s+(?:named|called|name=)?([^\s,，。）)]+))?(?:\s+(?:in|from|namespace=?)\s*([^\s,，。）)]+))?`),
+			"k8s_describe": regexp.MustCompile(`(?i)(?:describe|details|info about|详细信息|描述)\s+(pod|deployment|service|node)(?:\s+([^\s,，。）)]+))?(?:\s+(?:in|from|namespace=?)\s*([^\s,，。）)]+))?`),
+			"k8s_logs":     regexp.MustCompile(`(?i)(?:logs|log|日志)\s+(?:for\s+)?(?:pod\s+)?([^\s,，。）)]+)(?:\s+(?:in|from|namespace=?)\s*([^\s,，。）)]+))?`),
+			"k8s_events":   regexp.MustCompile(`(?i)(?:events?|事件)(?:\s+(?:for|about)\s+([^\s,，。）)]+))?(?:\s+(?:in|from|namespace=?)\s*([^\s,，。）)]+))?`),
+			"k8s_scale":    regexp.MustCompile(`(?i)(?:scale|扩容|缩容|调整副本)\s+(deployment|statefulset|deploy)\s+([^\s,，。）)]+)\s+(?:to|为|到)\s+(\d+)`),
+			"k8s_restart":  regexp.MustCompile(`(?i)(?:restart|重启)\s+(deployment|statefulset|pod|deploy)\s+([^\s,，。）)]+)`),
+			"k8s_rollout":  regexp.MustCompile(`(?i)(?:rollout|发布|回滚)\s+(undo|restart|status|回滚|重启|状态)\s+(deployment|deploy)\s+([^\s,，。）)]+)`),
+			"k8s_status":   regexp.MustCompile(`(?i)(?:status|状态)\s+(?:of\s+)?([^\s,，。）)]+)`),
+			"k8s_top":      regexp.MustCompile(`(?i)(?:top|资源|使用率|监控)\s+(pods?|nodes?|节点|pod)(?:\s+(?:in|from|namespace=?)\s*([^\s,，。）)]+))?`),
 		},
 	}
 }
@@ -244,6 +305,32 @@ func (fp *FallbackParser) Parse(name, args string) []ParsedToolCall {
 	}
 
 	return nil
+}
+
+// ParseFromText attempts to parse tool calls from free-form text content.
+func (fp *FallbackParser) ParseFromText(text string) []ParsedToolCall {
+	if text == "" {
+		return nil
+	}
+
+	toolCalls := []ParsedToolCall{}
+
+	// Try to match each tool pattern against the full text
+	for toolName, pattern := range fp.toolPatterns {
+		matches := pattern.FindAllStringSubmatch(text, -1)
+		for _, match := range matches {
+			argsMap := fp.extractArgsFromMatch(toolName, match)
+			if len(argsMap) > 0 {
+				toolCalls = append(toolCalls, ParsedToolCall{
+					Name:      toolName,
+					Arguments: argsMap,
+					RawJSON:   match[0],
+				})
+			}
+		}
+	}
+
+	return toolCalls
 }
 
 // parseArgsByType parses arguments based on tool type.
