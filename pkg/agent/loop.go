@@ -162,6 +162,7 @@ func (al *DefaultAgentLoop) ExecuteWithTools(ctx context.Context, input string, 
 
 		// Parse response
 		thought := resp.Content
+		reasoning := resp.ReasoningContent
 
 		// Check for tool calls - first try structured tool calls from the response
 		// (OpenAI tool calling protocol: resp.ToolCalls carries id + name + arguments)
@@ -217,7 +218,7 @@ func (al *DefaultAgentLoop) ExecuteWithTools(ctx context.Context, input string, 
 			state.setState(StateResponding)
 			al.emitEvent(handler, "state_change", state.state, state.currentPhase, nil)
 
-			al.contextManager.AddMessage(llm.RoleAssistant, thought)
+			al.contextManager.AddAssistantWithToolCalls(thought, nil, reasoning)
 			result.State = StateCompleted
 			result.FinalResponse = thought
 			result.TotalIterations = state.iterationCount
@@ -238,7 +239,7 @@ func (al *DefaultAgentLoop) ExecuteWithTools(ctx context.Context, input string, 
 				},
 			})
 		}
-		al.contextManager.AddAssistantWithToolCalls(thought, assistantToolCalls)
+		al.contextManager.AddAssistantWithToolCalls(thought, assistantToolCalls, reasoning)
 
 		// Phase: Act (Execute tools)
 		state.setState(StateExecuting)

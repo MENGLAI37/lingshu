@@ -274,6 +274,34 @@ func (m *TUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 		}
 
+		// PgUp / PgDn - Scroll chat (always available)
+		if msg.Type == tea.KeyPgUp {
+			if !m.commandPreview.Visible() && !m.highlighted.Visible() && !m.showHelp && !m.configPanel.Visible() {
+				m.chatView.ScrollUp(m.chatView.Height() / 2)
+				return m, nil
+			}
+		}
+		if msg.Type == tea.KeyPgDown {
+			if !m.commandPreview.Visible() && !m.highlighted.Visible() && !m.showHelp && !m.configPanel.Visible() {
+				m.chatView.ScrollDown(m.chatView.Height() / 2)
+				return m, nil
+			}
+		}
+
+		// Home / End - Jump to top/bottom (always available)
+		if msg.Type == tea.KeyHome {
+			if !m.commandPreview.Visible() && !m.highlighted.Visible() && !m.showHelp && !m.configPanel.Visible() {
+				m.chatView.ScrollToTop()
+				return m, nil
+			}
+		}
+		if msg.Type == tea.KeyEnd {
+			if !m.commandPreview.Visible() && !m.highlighted.Visible() && !m.showHelp && !m.configPanel.Visible() {
+				m.chatView.ScrollToBottom()
+				return m, nil
+			}
+		}
+
 		// ============================================================
 		// L1: Normal mode (input NOT focused) - Global shortcuts
 		// ============================================================
@@ -457,13 +485,14 @@ func (m *TUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 
-		headerHeight := 2
+		headerHeight := 1
 		footerHeight := 1
-		inputHeight := 5
-		bodyPadding := 2
+		inputPromptHeight := 1
+		inputTextareaHeight := 3
+		chatPadding := 2
 		separatorHeight := 1
-		inputPadding := 2
-		chatHeight := m.height - headerHeight - footerHeight - inputHeight - bodyPadding - separatorHeight - inputPadding + 1
+		totalFixed := headerHeight + footerHeight + inputPromptHeight + inputTextareaHeight + chatPadding + separatorHeight
+		chatHeight := m.height - totalFixed
 		if chatHeight < 3 {
 			chatHeight = 3
 		}
@@ -634,22 +663,17 @@ func (m *TUIModel) renderBody() string {
 		Width(m.width).
 		Render(strings.Repeat("─", m.width))
 
-	bodyHeight := m.height - 8
-	if bodyHeight < 5 {
-		bodyHeight = 5
-	}
-
-	body := lipgloss.NewStyle().
+	chatSection := lipgloss.NewStyle().
 		Padding(1, 2).
-		Height(bodyHeight).
+		Height(m.chatView.Height() + 2).
 		Render(chatArea)
 
 	inputSection := lipgloss.NewStyle().
-		Padding(1, 2).
+		Padding(0, 2).
 		Render(inputArea)
 
 	return lipgloss.JoinVertical(lipgloss.Left,
-		body,
+		chatSection,
 		separator,
 		inputSection,
 	)

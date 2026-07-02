@@ -91,10 +91,11 @@ func (p *OpenAIProvider) Complete(ctx context.Context, req *CompletionRequest) (
 	toolCalls := convertOpenAIToolCalls(choice.Message.ToolCalls)
 
 	return &CompletionResponse{
-		Content:      choice.Message.Content,
-		ToolCalls:    toolCalls,
-		FunctionCall: convertOpenAIFunctionCall(choice.Message.ToolCalls),
-		FinishReason: choice.FinishReason,
+		Content:          choice.Message.Content,
+		ToolCalls:        toolCalls,
+		FunctionCall:     convertOpenAIFunctionCall(choice.Message.ToolCalls),
+		ReasoningContent: choice.Message.ReasoningContent,
+		FinishReason:     choice.FinishReason,
 		Usage: TokenUsage{
 			InputTokens:  result.Usage.PromptTokens,
 			OutputTokens: result.Usage.CompletionTokens,
@@ -167,11 +168,12 @@ func (p *OpenAIProvider) HealthCheck(ctx context.Context) error {
 // ===========================================================================
 
 type openAIMessage struct {
-	Role       string              `json:"role"`
-	Content    string              `json:"content"`
-	Name       string              `json:"name,omitempty"`
-	ToolCalls  []openAIToolCall    `json:"tool_calls,omitempty"`
-	ToolCallID string              `json:"tool_call_id,omitempty"`
+	Role              string           `json:"role"`
+	Content           string           `json:"content,omitempty"`
+	Name              string           `json:"name,omitempty"`
+	ToolCalls         []openAIToolCall `json:"tool_calls,omitempty"`
+	ToolCallID        string           `json:"tool_call_id,omitempty"`
+	ReasoningContent  string           `json:"reasoning_content,omitempty"`
 }
 
 type openAIToolCall struct {
@@ -241,10 +243,11 @@ func (p *OpenAIProvider) buildRequestBody(req *CompletionRequest, stream bool) (
 	}
 	for _, m := range req.Messages {
 		msg := openAIMessage{
-			Role:       string(m.Role),
-			Content:    m.Content,
-			Name:       m.Name,
-			ToolCallID: m.ToolCallID,
+			Role:             string(m.Role),
+			Content:          m.Content,
+			Name:             m.Name,
+			ToolCallID:       m.ToolCallID,
+			ReasoningContent: m.ReasoningContent,
 		}
 		for _, tc := range m.ToolCalls {
 			omTC := openAIToolCall{
