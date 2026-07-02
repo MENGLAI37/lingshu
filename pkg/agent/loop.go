@@ -208,7 +208,7 @@ func (al *DefaultAgentLoop) ExecuteWithTools(ctx context.Context, input string, 
 		// Add tool results to context
 		for _, execResult := range execResults {
 			resultStr := al.formatToolResult(execResult)
-			al.contextManager.AddToolResult(execResult.ToolName, resultStr)
+			al.contextManager.AddToolResult(execResult.ToolName, resultStr, "")
 		}
 
 		// Increment iteration count
