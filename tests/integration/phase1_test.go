@@ -89,8 +89,9 @@ func TestPhase1NginxPodRestartDiagnosis(t *testing.T) {
 		_, err = clientset.AppsV1().Deployments(nsName).Create(ctx, nginxDeploy, metav1.CreateOptions{})
 		require.NoError(t, err, "Failed to create nginx deployment")
 
-		// Wait for pods to be ready
-		time.Sleep(10 * time.Second)
+		// Wait for pod to start crashing (CrashLoopBackOff) - 真正的重启故障
+		require.NoError(t, waitForPodRestart(ctx, clientset, nsName, "app=nginx", 90*time.Second),
+			"Pod did not start crashing within timeout")
 	}
 
 	// Get current pods
@@ -98,6 +99,7 @@ func TestPhase1NginxPodRestartDiagnosis(t *testing.T) {
 		LabelSelector: "app=nginx",
 	})
 	require.NoError(t, err, "Failed to list nginx pods")
+	require.NotEmpty(t, pods.Items, "Should have at least one nginx pod")
 
 	t.Logf("Found %d nginx pods", len(pods.Items))
 	for _, pod := range pods.Items {
@@ -115,10 +117,23 @@ func TestPhase1NginxPodRestartDiagnosis(t *testing.T) {
 	require.NoError(t, err, "Failed to list events")
 	t.Logf("Found %d events for first pod", len(events.Items))
 
-	// Get pod logs
+	// Get pod logs - 先取当前容器日志，失败则取上一个崩溃容器的日志（CrashLoopBackOff 场景）
 	logs, err := clientset.CoreV1().Pods(nsName).GetLogs(pods.Items[0].Name, &corev1.PodLogOptions{
 		TailLines: int64Ptr(50),
 	}).Do(ctx).Raw()
+	if err != nil || len(logs) == 0 {
+		t.Logf("Current logs unavailable (%v), trying previous container logs...", err)
+		prevLogs, prevErr := clientset.CoreV1().Pods(nsName).GetLogs(pods.Items[0].Name, &corev1.PodLogOptions{
+			TailLines: int64Ptr(50),
+			Previous:  true,
+		}).Do(ctx).Raw()
+		if prevErr == nil {
+			logs = prevLogs
+			err = nil
+		} else {
+			err = prevErr
+		}
+	}
 	if err != nil {
 		t.Logf("Warning: Could not get logs: %v", err)
 	} else {
@@ -191,23 +206,18 @@ func createNginxDeployment(namespace string) *appsv1.Deployment {
 				Spec: corev1.PodSpec{
 					Containers: []corev1.Container{
 						{
-							Name:  "nginx",
-							Image: "nginx:alpine",
+							// 模拟应用因数据库连接失败而崩溃重启的场景
+							// 容器启动后输出连接错误日志并立即退出，触发 CrashLoopBackOff
+							Name:    "nginx",
+							Image:   "busybox:1.36",
+							Command: []string{"/bin/sh", "-c"},
+							Args: []string{
+								"echo '2026-07-02 10:00:00 [FATAL] Cannot connect to database postgresql://missing-host:5432/db: connection refused'; " +
+									"echo '2026-07-02 10:00:00 [ERROR] Application failed to start: database unreachable'; " +
+									"sleep 1; exit 1",
+							},
 							Ports: []corev1.ContainerPort{
 								{ContainerPort: 80},
-							},
-							Env: []corev1.EnvVar{
-								{
-									Name: "DB_URL",
-									ValueFrom: &corev1.EnvVarSource{
-										ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
-											LocalObjectReference: corev1.LocalObjectReference{
-												Name: "app-config",
-											},
-											Key: "database_url",
-										},
-									},
-								},
 							},
 						},
 					},
@@ -246,11 +256,20 @@ func gatherDiagnosisInfo(ctx context.Context, clientset *kubernetes.Clientset, n
 		}
 	}
 
-	// Get logs
+	// Get logs - 先取当前容器日志，失败或为空则取上一个崩溃容器的日志
 	logs, err := clientset.CoreV1().Pods(namespace).GetLogs(podName, &corev1.PodLogOptions{
 		TailLines: int64Ptr(50),
 	}).Do(ctx).Raw()
-	if err == nil {
+	if err != nil || len(logs) == 0 {
+		prevLogs, prevErr := clientset.CoreV1().Pods(namespace).GetLogs(podName, &corev1.PodLogOptions{
+			TailLines: int64Ptr(50),
+			Previous:  true,
+		}).Do(ctx).Raw()
+		if prevErr == nil {
+			logs = prevLogs
+		}
+	}
+	if len(logs) > 0 {
 		info.logs = string(logs)
 	}
 
@@ -292,6 +311,40 @@ func generateRootCauseHypothesis(info diagnosisInfo) string {
 }
 
 // Helper functions
+
+// waitForPodRestart 轮询等待带指定 label 的 Pod 至少出现 1 次重启，
+// 确保容器已进入 CrashLoopBackOff 状态，日志和事件都已就绪可采集。
+func waitForPodRestart(ctx context.Context, clientset *kubernetes.Clientset, namespace, labelSelector string, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	pollInterval := 2 * time.Second
+
+	for time.Now().Before(deadline) {
+		pods, err := clientset.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{
+			LabelSelector: labelSelector,
+		})
+		if err != nil {
+			return fmt.Errorf("failed to list pods: %w", err)
+		}
+		if len(pods.Items) > 0 {
+			pod := pods.Items[0]
+			restarts := getRestartCount(pod)
+			// 至少 1 次重启说明容器已经崩溃过，日志和事件都已就绪
+			if restarts > 0 {
+				return nil
+			}
+			// 容器状态为 Waiting 且 Reason 为 CrashLoopBackOff 也算就绪
+			for _, cs := range pod.Status.ContainerStatuses {
+				if cs.State.Waiting != nil && cs.State.Waiting.Reason == "CrashLoopBackOff" {
+					return nil
+				}
+			}
+		}
+		time.Sleep(pollInterval)
+	}
+
+	return fmt.Errorf("timeout waiting for pod restart after %v", timeout)
+}
+
 func getRestartCount(pod corev1.Pod) int32 {
 	var restarts int32
 	for _, cs := range pod.Status.ContainerStatuses {
