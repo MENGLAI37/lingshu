@@ -62,7 +62,7 @@ type FunctionCall struct {
 type CompletionResponse struct {
 	Content          string         `json:"content"`
 	FunctionCall     *FunctionCall  `json:"function_call,omitempty"`
-	ToolCalls        []FunctionCall `json:"tool_calls,omitempty"`
+	ToolCalls        []ToolCall     `json:"tool_calls,omitempty"`
 	ReasoningContent string         `json:"reasoning_content,omitempty"`
 	FinishReason     string         `json:"finish_reason"`
 	Usage            TokenUsage     `json:"usage"`
