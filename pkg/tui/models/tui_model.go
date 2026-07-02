@@ -807,6 +807,7 @@ func (m *TUIModel) handleUserInput(input string) {
 	})
 
 	m.aiThinking = true
+	m.statusBar.SetAIStatus(components.AIStatusThinking)
 	m.statusBar.AddTokens(len(input) / 4)
 
 	// Use real Agent Loop if available
@@ -829,6 +830,7 @@ func (m *TUIModel) runAgentLoop(userInput string) {
 		switch event.Type {
 		case "thinking":
 			if thought, ok := event.Data.(string); ok {
+				m.statusBar.SetAIStatus(components.AIStatusThinking)
 				if !responseStarted {
 					m.SendMessage(AIResponseMsg{Content: thought, Done: false})
 					responseStarted = true
@@ -837,6 +839,7 @@ func (m *TUIModel) runAgentLoop(userInput string) {
 		case "state_change":
 			switch event.State {
 			case agent.StateExecuting:
+				m.statusBar.SetAIStatus(components.AIStatusExecuting)
 				if !responseStarted {
 					m.SendMessage(AIResponseMsg{Content: "正在执行工具...\n\n", Done: false})
 					responseStarted = true
@@ -844,6 +847,7 @@ func (m *TUIModel) runAgentLoop(userInput string) {
 					m.SendMessage(AIResponseMsg{Content: "\n正在执行工具...\n\n", Done: false})
 				}
 			case agent.StateObserving:
+				m.statusBar.SetAIStatus(components.AIStatusThinking)
 				m.SendMessage(AIResponseMsg{Content: "\n分析结果中...\n\n", Done: false})
 			}
 		case "tool_result":
@@ -853,6 +857,7 @@ func (m *TUIModel) runAgentLoop(userInput string) {
 			}
 		case "error":
 			if err, ok := event.Data.(error); ok {
+				m.statusBar.SetAIStatus(components.AIStatusError)
 				m.SendMessage(AIResponseMsg{Content: fmt.Sprintf("\n错误: %v\n\n", err), Done: true})
 			}
 		}
@@ -868,6 +873,7 @@ func (m *TUIModel) runAgentLoop(userInput string) {
 			Error:   err,
 		})
 		m.aiThinking = false
+		m.statusBar.SetAIStatus(components.AIStatusError)
 		return
 	}
 
@@ -893,6 +899,7 @@ func (m *TUIModel) runAgentLoop(userInput string) {
 	}
 
 	m.aiThinking = false
+	m.statusBar.SetAIStatus(components.AIStatusIdle)
 }
 
 // formatToolExecutionResult formats a tool execution result for display
@@ -1109,6 +1116,7 @@ func (m *TUIModel) handleAIResponse(msg AIResponseMsg) {
 		})
 		m.aiThinking = false
 		m.streaming = false
+		m.statusBar.SetAIStatus(components.AIStatusError)
 		return
 	}
 
@@ -1116,6 +1124,7 @@ func (m *TUIModel) handleAIResponse(msg AIResponseMsg) {
 		m.chatView.FinishLastAIStreaming()
 		m.aiThinking = false
 		m.streaming = false
+		m.statusBar.SetAIStatus(components.AIStatusIdle)
 		m.statusBar.AddTokens(len(msg.Content) / 4)
 	} else {
 		m.chatView.AppendToLastAIMessage(msg.Content)
