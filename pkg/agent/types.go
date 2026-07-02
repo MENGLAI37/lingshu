@@ -143,7 +143,7 @@ type RiskEvaluation struct {
 // ContextManager manages conversation context.
 type ContextManager interface {
 	AddMessage(role llm.MessageRole, content string)
-	AddAssistantWithToolCalls(content string, toolCalls []llm.ToolCall)
+	AddAssistantWithToolCalls(content string, toolCalls []llm.ToolCall, reasoningContent string)
 	AddToolResult(toolName string, result string, toolCallID string)
 	GetMessages() []llm.Message
 	GetTokenCount() int64

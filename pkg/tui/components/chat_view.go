@@ -374,7 +374,17 @@ func (c *ChatView) SetWidth(w int) {
 }
 
 func (c *ChatView) SetHeight(h int) {
+	prevHeight := c.height
 	c.height = h
+	// If we were at the bottom before resizing, stay at the bottom.
+	// If new height is larger, scroll position might need to go down.
+	totalLines := len(c.renderAllLines())
+	if totalLines <= c.height {
+		c.scrollPos = 0
+	} else if c.scrollPos+c.height > totalLines {
+		c.scrollPos = totalLines - c.height
+	}
+	_ = prevHeight
 }
 
 func (c *ChatView) Height() int {
