@@ -88,8 +88,11 @@ func (p *OpenAIProvider) Complete(ctx context.Context, req *CompletionRequest) (
 	choice := result.Choices[0]
 	latency := time.Since(start)
 
+	toolCalls := convertOpenAIToolCalls(choice.Message.ToolCalls)
+
 	return &CompletionResponse{
-		Content: choice.Message.Content,
+		Content:      choice.Message.Content,
+		ToolCalls:    toolCalls,
 		FunctionCall: convertOpenAIFunctionCall(choice.Message.ToolCalls),
 		FinishReason: choice.FinishReason,
 		Usage: TokenUsage{
@@ -237,11 +240,27 @@ func (p *OpenAIProvider) buildRequestBody(req *CompletionRequest, stream bool) (
 		messages = append(messages, openAIMessage{Role: "system", Content: req.SystemPrompt})
 	}
 	for _, m := range req.Messages {
-		messages = append(messages, openAIMessage{
-			Role:    string(m.Role),
-			Content: m.Content,
-			Name:    m.Name,
-		})
+		msg := openAIMessage{
+			Role:       string(m.Role),
+			Content:    m.Content,
+			Name:       m.Name,
+			ToolCallID: m.ToolCallID,
+		}
+		for _, tc := range m.ToolCalls {
+			omTC := openAIToolCall{
+				ID:   tc.ID,
+				Type: tc.Type,
+				Function: openAIFunction{
+					Name:      tc.Function.Name,
+					Arguments: tc.Function.Arguments,
+				},
+			}
+			if omTC.Type == "" {
+				omTC.Type = "function"
+			}
+			msg.ToolCalls = append(msg.ToolCalls, omTC)
+		}
+		messages = append(messages, msg)
 	}
 
 	body := openAICompletionRequest{
@@ -350,7 +369,33 @@ func convertOpenAIFunctionCall(toolCalls []openAIToolCall) *FunctionCall {
 		return nil
 	}
 	return &FunctionCall{
+		ID:        toolCalls[0].ID,
 		Name:      toolCalls[0].Function.Name,
 		Arguments: toolCalls[0].Function.Arguments,
 	}
+}
+
+// convertOpenAIToolCalls converts OpenAI tool calls to the unified ToolCall slice,
+// preserving all calls and their IDs (required for multi-turn tool calling).
+func convertOpenAIToolCalls(toolCalls []openAIToolCall) []ToolCall {
+	if len(toolCalls) == 0 {
+		return nil
+	}
+	result := make([]ToolCall, 0, len(toolCalls))
+	for _, tc := range toolCalls {
+		tcType := tc.Type
+		if tcType == "" {
+			tcType = "function"
+		}
+		result = append(result, ToolCall{
+			ID:   tc.ID,
+			Type: tcType,
+			Function: FunctionCall{
+				ID:        tc.ID,
+				Name:      tc.Function.Name,
+				Arguments: tc.Function.Arguments,
+			},
+		})
+	}
+	return result
 }
