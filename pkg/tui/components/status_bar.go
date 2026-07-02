@@ -23,6 +23,43 @@ type StatusBar struct {
 	mode          string
 	width         int
 	llmProvider   string
+	aiStatus      AIStatus
+}
+
+// AIStatus represents the current AI agent status.
+type AIStatus string
+
+const (
+	AIStatusIdle      AIStatus = "idle"
+	AIStatusThinking  AIStatus = "thinking"
+	AIStatusExecuting AIStatus = "executing"
+	AIStatusError     AIStatus = "error"
+)
+
+func (s AIStatus) Label() string {
+	switch s {
+	case AIStatusThinking:
+		return "🤔 思考中"
+	case AIStatusExecuting:
+		return "🔧 执行工具中"
+	case AIStatusError:
+		return "❌ 错误"
+	default:
+		return "✅ 就绪"
+	}
+}
+
+func (s AIStatus) Color() string {
+	switch s {
+	case AIStatusThinking:
+		return "#f0c040"
+	case AIStatusExecuting:
+		return "#40a0f0"
+	case AIStatusError:
+		return "#f04040"
+	default:
+		return "#40f080"
+	}
 }
 
 type StatusTickMsg struct{}
@@ -63,7 +100,15 @@ func (s *StatusBar) Update(msg tea.Msg) (*StatusBar, tea.Cmd) {
 }
 
 func (s *StatusBar) View() string {
+	aiStatusLabel := s.aiStatus.Label()
+	aiStatusColor := lipgloss.Color(s.aiStatus.Color())
+	aiStatusStyle := lipgloss.NewStyle().
+		Foreground(aiStatusColor).
+		Bold(true)
+	aiStatusStr := aiStatusStyle.Render(aiStatusLabel)
+
 	leftItems := []string{
+		aiStatusStr,
 		s.formatItem("集群", s.cluster, s.styles.Theme.Primary),
 		s.formatItem("命名空间", s.namespace, s.styles.Theme.Info),
 		s.formatItem("环境", s.environment, s.getEnvColor()),
@@ -170,6 +215,10 @@ func (s *StatusBar) SetMode(mode string) {
 
 func (s *StatusBar) SetLLMProvider(provider string) {
 	s.llmProvider = provider
+}
+
+func (s *StatusBar) SetAIStatus(status AIStatus) {
+	s.aiStatus = status
 }
 
 func (s *StatusBar) SetWidth(w int) {
