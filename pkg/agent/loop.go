@@ -2,8 +2,6 @@ package agent
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"sync"
@@ -64,13 +62,11 @@ func (al *DefaultAgentLoop) Execute(ctx context.Context, input string, handler L
 	return al.ExecuteWithTools(ctx, input, nil, handler)
 }
 
-// Reset clears the conversation context, starting a fresh conversation.
-func (al *DefaultAgentLoop) Reset() {
-	al.contextManager.Reset()
-}
-
 // ExecuteWithTools runs the agent loop with optional additional tools.
 func (al *DefaultAgentLoop) ExecuteWithTools(ctx context.Context, input string, extraTools []tools.Tool, handler LoopEventHandler) (*LoopResult, error) {
+	// Reset context for new execution
+	al.contextManager.Reset()
+
 	// Register extra tools if provided
 	if extraTools != nil {
 		for _, tool := range extraTools {
@@ -162,45 +158,15 @@ func (al *DefaultAgentLoop) ExecuteWithTools(ctx context.Context, input string, 
 
 		// Parse response
 		thought := resp.Content
-		reasoning := resp.ReasoningContent
 
-		// Check for tool calls - first try structured tool calls from the response
-		// (OpenAI tool calling protocol: resp.ToolCalls carries id + name + arguments)
+		// Parse tool calls from both ToolCalls and FunctionCall
 		var toolCalls []ParsedToolCall
-		for _, tc := range resp.ToolCalls {
-			args := map[string]any{}
-			if tc.Function.Arguments != "" {
-				if err := json.Unmarshal([]byte(tc.Function.Arguments), &args); err != nil {
-					// Keep raw arguments as fallback; tool may still handle
-					args = map[string]any{"_raw": tc.Function.Arguments}
-				}
+		if len(resp.ToolCalls) > 0 {
+			for _, tc := range resp.ToolCalls {
+				toolCalls = append(toolCalls, al.parser.Parse(&tc)...)
 			}
-			toolCalls = append(toolCalls, ParsedToolCall{
-				Name:       tc.Function.Name,
-				Arguments:  args,
-				RawJSON:    tc.Function.Arguments,
-				ToolCallID: tc.ID,
-			})
-		}
-
-		// Fallback: try single FunctionCall parsing (legacy path)
-		if len(toolCalls) == 0 {
+		} else if resp.FunctionCall != nil {
 			toolCalls = al.parser.Parse(resp.FunctionCall)
-		}
-
-		// Fallback: try parsing from content (natural language tool calls)
-		if len(toolCalls) == 0 && thought != "" {
-			toolCalls = al.parser.ParseFromContent(thought)
-		}
-
-		// Ensure every tool call has a unique ID.
-		// Fallback-parsed tool calls (from FunctionCall or content) don't carry IDs,
-		// but the OpenAI tool calling protocol requires tool result messages to have
-		// tool_call_id. Generate synthetic IDs so the protocol stays valid.
-		for i := range toolCalls {
-			if toolCalls[i].ToolCallID == "" {
-				toolCalls[i].ToolCallID = generateToolCallID()
-			}
 		}
 
 		// Record thinking step
@@ -218,28 +184,12 @@ func (al *DefaultAgentLoop) ExecuteWithTools(ctx context.Context, input string, 
 			state.setState(StateResponding)
 			al.emitEvent(handler, "state_change", state.state, state.currentPhase, nil)
 
-			al.contextManager.AddAssistantWithToolCalls(thought, nil, reasoning)
+			al.contextManager.AddMessage(llm.RoleAssistant, thought)
 			result.State = StateCompleted
 			result.FinalResponse = thought
 			result.TotalIterations = state.iterationCount
 			break
 		}
-
-		// Write the assistant message (with tool_calls) to context BEFORE executing tools.
-		// OpenAI protocol requires: assistant(tool_calls) must immediately precede tool result messages.
-		assistantToolCalls := make([]llm.ToolCall, 0, len(toolCalls))
-		for _, tc := range toolCalls {
-			argsJSON, _ := json.Marshal(tc.Arguments)
-			assistantToolCalls = append(assistantToolCalls, llm.ToolCall{
-				ID:   tc.ToolCallID,
-				Type: "function",
-				Function: llm.FunctionCall{
-					Name:      tc.Name,
-					Arguments: string(argsJSON),
-				},
-			})
-		}
-		al.contextManager.AddAssistantWithToolCalls(thought, assistantToolCalls, reasoning)
 
 		// Phase: Act (Execute tools)
 		state.setState(StateExecuting)
@@ -255,10 +205,10 @@ func (al *DefaultAgentLoop) ExecuteWithTools(ctx context.Context, input string, 
 		state.setPhase(PhaseObserve)
 		al.emitEvent(handler, "state_change", state.state, state.currentPhase, nil)
 
-		// Add tool results to context (with tool_call_id to satisfy OpenAI protocol)
+		// Add tool results to context
 		for _, execResult := range execResults {
 			resultStr := al.formatToolResult(execResult)
-			al.contextManager.AddToolResult(execResult.ToolName, resultStr, execResult.ToolCallID)
+			al.contextManager.AddToolResult(execResult.ToolName, resultStr, "")
 		}
 
 		// Increment iteration count
@@ -272,21 +222,18 @@ func (al *DefaultAgentLoop) ExecuteWithTools(ctx context.Context, input string, 
 
 // executeTools executes the parsed tool calls.
 func (al *DefaultAgentLoop) executeTools(ctx context.Context, toolCalls []ParsedToolCall, handler LoopEventHandler, state *LoopStateTracker) []ToolExecutionResult {
-	results := make([]ToolExecutionResult, 0, len(toolCalls))
-	allowedCalls := []ParsedToolCall{}
-	allowedIndices := []int{} // tracks original index for result alignment
+	results := []ToolExecutionResult{}
 
 	// Security check for each tool call
-	for i, tc := range toolCalls {
+	for _, tc := range toolCalls {
 		if al.securityGateway != nil {
 			evaluation, err := al.securityGateway.EvaluateRisk(ctx, tc.Name, tc.Arguments)
 			if err != nil {
 				results = append(results, ToolExecutionResult{
-					ToolName:   tc.Name,
-					Arguments:  tc.Arguments,
-					ToolCallID: tc.ToolCallID,
-					Error:      fmt.Errorf("security evaluation failed: %w", err),
-					Timestamp:  time.Now(),
+					ToolName:  tc.Name,
+					Arguments: tc.Arguments,
+					Error:     fmt.Errorf("security evaluation failed: %w", err),
+					Timestamp: time.Now(),
 				})
 				continue
 			}
@@ -294,59 +241,39 @@ func (al *DefaultAgentLoop) executeTools(ctx context.Context, toolCalls []Parsed
 			allowed, reason := al.securityGateway.IsAllowed(ctx, evaluation)
 			if !allowed {
 				results = append(results, ToolExecutionResult{
-					ToolName:   tc.Name,
-					Arguments:  tc.Arguments,
-					ToolCallID: tc.ToolCallID,
-					Error:      fmt.Errorf("security blocked: %s", reason),
-					Timestamp:  time.Now(),
+					ToolName:  tc.Name,
+					Arguments: tc.Arguments,
+					Error:     fmt.Errorf("security blocked: %s", reason),
+					Timestamp: time.Now(),
 				})
 				al.emitEvent(handler, "error", state.state, state.currentPhase, fmt.Errorf("security blocked: %s", reason))
 				continue
 			}
 		}
-		allowedCalls = append(allowedCalls, tc)
-		allowedIndices = append(allowedIndices, i)
 	}
 
-	// Execute allowed tools (parallel or sequential) and merge results preserving order
-	if len(allowedCalls) > 0 {
-		var execResults []ToolExecutionResult
-		if al.config.EnableParallelTools && len(allowedCalls) > 1 {
-			execResults = al.parallelExec.ExecuteParallel(ctx, allowedCalls, al.toolRegistry)
-		} else {
-			execResults = make([]ToolExecutionResult, 0, len(allowedCalls))
-			for _, tc := range allowedCalls {
-				r := al.executeSingleTool(ctx, tc)
-				execResults = append(execResults, r)
-				al.emitEvent(handler, "tool_result", state.state, state.currentPhase, r)
-			}
+	// Filter allowed tool calls
+	allowedCalls := []ParsedToolCall{}
+	for i, tc := range toolCalls {
+		if i < len(results) && results[i].Error != nil {
+			continue
 		}
+		allowedCalls = append(allowedCalls, tc)
+	}
 
-		// Merge execResults back into results at their original positions
-		// results currently only has security-blocked entries appended in order;
-		// rebuild a fully ordered slice to keep tool_call_id alignment correct.
-		ordered := make([]ToolExecutionResult, len(toolCalls))
-		blockedIdx := 0
-		for i := range toolCalls {
-			if blockedIdx < len(results) && results[blockedIdx].Error != nil && results[blockedIdx].ToolName == toolCalls[i].Name && results[blockedIdx].ToolCallID == toolCalls[i].ToolCallID {
-				ordered[i] = results[blockedIdx]
-				blockedIdx++
-			}
+	// Execute tools (parallel or sequential)
+	if al.config.EnableParallelTools && len(allowedCalls) > 1 {
+		parallelResults := al.parallelExec.ExecuteParallel(ctx, allowedCalls, al.toolRegistry)
+		results = append(results, parallelResults...)
+		for _, pr := range parallelResults {
+			al.emitEvent(handler, "tool_result", state.state, state.currentPhase, pr)
 		}
-		for j, er := range execResults {
-			origIdx := allowedIndices[j]
-			er.ToolCallID = allowedCalls[j].ToolCallID
-			ordered[origIdx] = er
+	} else {
+		for _, tc := range allowedCalls {
+			result := al.executeSingleTool(ctx, tc)
+			results = append(results, result)
+			al.emitEvent(handler, "tool_result", state.state, state.currentPhase, result)
 		}
-		// Filter out zero-value entries (shouldn't happen, but be safe)
-		final := make([]ToolExecutionResult, 0, len(toolCalls))
-		for _, r := range ordered {
-			if r.Timestamp.IsZero() && r.Error == nil && r.Result == nil {
-				continue
-			}
-			final = append(final, r)
-		}
-		return final
 	}
 
 	return results
@@ -359,12 +286,11 @@ func (al *DefaultAgentLoop) executeSingleTool(ctx context.Context, tc ParsedTool
 	tool, err := al.toolRegistry.GetTool(tc.Name)
 	if err != nil {
 		return ToolExecutionResult{
-			ToolName:   tc.Name,
-			Arguments:  tc.Arguments,
-			ToolCallID: tc.ToolCallID,
-			Error:      fmt.Errorf("tool not found: %w", err),
-			Duration:   time.Since(start),
-			Timestamp:  start,
+			ToolName:  tc.Name,
+			Arguments: tc.Arguments,
+			Error:     fmt.Errorf("tool not found: %w", err),
+			Duration:  time.Since(start),
+			Timestamp: start,
 		}
 	}
 
@@ -375,13 +301,12 @@ func (al *DefaultAgentLoop) executeSingleTool(ctx context.Context, tc ParsedTool
 	result, err := tool.Execute(toolCtx, tc.Arguments)
 
 	return ToolExecutionResult{
-		ToolName:   tc.Name,
-		Arguments:  tc.Arguments,
-		ToolCallID: tc.ToolCallID,
-		Result:     result,
-		Error:      err,
-		Duration:   time.Since(start),
-		Timestamp:  start,
+		ToolName:  tc.Name,
+		Arguments: tc.Arguments,
+		Result:    result,
+		Error:     err,
+		Duration:  time.Since(start),
+		Timestamp: start,
 	}
 }
 
@@ -513,109 +438,32 @@ func formatToolDefinitions(defs []llm.FunctionDefinition) string {
 }
 
 func buildToolParameters(tool tools.Tool) map[string]interface{} {
-	// Build parameter schema based on tool name.
-	// K8s tools require resource_type to identify the resource kind (pod/deployment/...);
-	// without it the LLM omits resource_type and tools reject with "resource_type is required".
-	properties := map[string]interface{}{
+	// Default parameters structure
+	// Tools should implement their own parameter schema
+	return map[string]interface{}{
 		"namespace": map[string]interface{}{
 			"type":        "string",
-			"description": "Kubernetes namespace (omit or empty for all namespaces)",
+			"description": "Kubernetes namespace",
 		},
 		"name": map[string]interface{}{
 			"type":        "string",
 			"description": "Resource name",
 		},
 	}
-
-	switch tool.Name() {
-	case "k8s_get", "k8s_describe", "k8s_scale", "k8s_restart", "k8s_patch", "k8s_rollout":
-		properties["resource_type"] = map[string]interface{}{
-			"type":        "string",
-			"description": "Kubernetes resource type: pod, deployment, service, configmap, ingress, statefulset, replicaset, daemonset",
-			"enum":        []string{"pod", "deployment", "service", "configmap", "ingress", "statefulset", "replicaset", "daemonset"},
-		}
-	}
-	if tool.Name() == "k8s_get" {
-		properties["all_namespaces"] = map[string]interface{}{
-			"type":        "boolean",
-			"description": "If true, query across all namespaces",
-		}
-	}
-	if tool.Name() == "k8s_scale" {
-		properties["replicas"] = map[string]interface{}{
-			"type":        "integer",
-			"description": "Target replica count",
-		}
-	}
-	if tool.Name() == "k8s_patch" {
-		properties["patch_data"] = map[string]interface{}{
-			"type":        "string",
-			"description": "JSON or YAML patch data",
-		}
-	}
-	if tool.Name() == "k8s_rollout" {
-		properties["action"] = map[string]interface{}{
-			"type":        "string",
-			"description": "Rollout action: undo, restart, status",
-			"enum":        []string{"undo", "restart", "status"},
-		}
-	}
-	if tool.Name() == "k8s_logs" {
-		properties["pod_name"] = map[string]interface{}{
-			"type":        "string",
-			"description": "Pod name to fetch logs for",
-		}
-		properties["tail_lines"] = map[string]interface{}{
-			"type":        "integer",
-			"description": "Number of lines to return from the end (default 100)",
-		}
-	}
-	if tool.Name() == "k8s_events" {
-		properties["field_selector"] = map[string]interface{}{
-			"type":        "string",
-			"description": "Optional field selector to filter events",
-		}
-	}
-	if tool.Name() == "k8s_top" {
-		properties["resource_type"] = map[string]interface{}{
-			"type":        "string",
-			"description": "Resource to query: pods or nodes",
-			"enum":        []string{"pods", "nodes"},
-		}
-	}
-
-	return properties
 }
 
 func getRequiredParameters(tool tools.Tool) []string {
-	// Required parameters based on tool name and risk level
-	switch tool.Name() {
-	case "k8s_get", "k8s_describe", "k8s_scale", "k8s_restart", "k8s_patch", "k8s_rollout", "k8s_top":
-		return []string{"resource_type"}
-	case "k8s_logs":
-		return []string{"pod_name"}
-	}
+	// Basic required parameters based on tool risk level
 	switch tool.RiskLevel() {
 	case tools.RiskLevelL0:
-		return []string{}
+		return []string{"namespace"}
 	case tools.RiskLevelL1, tools.RiskLevelL2:
-		return []string{"name"}
+		return []string{"namespace", "name"}
 	case tools.RiskLevelL3, tools.RiskLevelL4:
-		return []string{"name", "confirm"}
+		return []string{"namespace", "name", "confirm"}
 	default:
 		return []string{}
 	}
-}
-
-// generateToolCallID generates a unique synthetic ID for tool calls that lack one.
-// Format: call_<8 hex chars> (same style as OpenAI tool call IDs).
-func generateToolCallID() string {
-	b := make([]byte, 8)
-	if _, err := rand.Read(b); err != nil {
-		// Fallback: use timestamp + nanos if crypto rand fails
-		return fmt.Sprintf("call_%d", time.Now().UnixNano())
-	}
-	return "call_" + hex.EncodeToString(b)
 }
 
 // Agent system prompt template
@@ -635,6 +483,5 @@ Guidelines:
 - For risky operations (L2+), explain the impact before executing
 - If you encounter errors, try alternative approaches
 - Keep responses concise and focused on the user's request
-- Use the provided function calling tools to execute operations
-- Do NOT output kubectl commands or code blocks as a substitute for tool calls
-- ALWAYS use the function calling mechanism when you need to execute operations`
+
+Respond with clear analysis and use tool_call when you need to execute operations.`

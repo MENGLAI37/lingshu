@@ -88,14 +88,19 @@ func (p *OpenAIProvider) Complete(ctx context.Context, req *CompletionRequest) (
 	choice := result.Choices[0]
 	latency := time.Since(start)
 
-	toolCalls := convertOpenAIToolCalls(choice.Message.ToolCalls)
+	var toolCalls []FunctionCall
+	for _, tc := range choice.Message.ToolCalls {
+		toolCalls = append(toolCalls, FunctionCall{
+			Name:      tc.Function.Name,
+			Arguments: tc.Function.Arguments,
+		})
+	}
 
 	return &CompletionResponse{
-		Content:          choice.Message.Content,
-		ToolCalls:        toolCalls,
-		FunctionCall:     convertOpenAIFunctionCall(choice.Message.ToolCalls),
-		ReasoningContent: choice.Message.ReasoningContent,
-		FinishReason:     choice.FinishReason,
+		Content:      choice.Message.Content,
+		FunctionCall: convertOpenAIFunctionCall(choice.Message.ToolCalls),
+		ToolCalls:    toolCalls,
+		FinishReason: choice.FinishReason,
 		Usage: TokenUsage{
 			InputTokens:  result.Usage.PromptTokens,
 			OutputTokens: result.Usage.CompletionTokens,
@@ -168,12 +173,11 @@ func (p *OpenAIProvider) HealthCheck(ctx context.Context) error {
 // ===========================================================================
 
 type openAIMessage struct {
-	Role              string           `json:"role"`
-	Content           string           `json:"content,omitempty"`
-	Name              string           `json:"name,omitempty"`
-	ToolCalls         []openAIToolCall `json:"tool_calls,omitempty"`
-	ToolCallID        string           `json:"tool_call_id,omitempty"`
-	ReasoningContent  string           `json:"reasoning_content,omitempty"`
+	Role       string              `json:"role"`
+	Content    string              `json:"content"`
+	Name       string              `json:"name,omitempty"`
+	ToolCalls  []openAIToolCall    `json:"tool_calls,omitempty"`
+	ToolCallID string              `json:"tool_call_id,omitempty"`
 }
 
 type openAIToolCall struct {
@@ -242,28 +246,11 @@ func (p *OpenAIProvider) buildRequestBody(req *CompletionRequest, stream bool) (
 		messages = append(messages, openAIMessage{Role: "system", Content: req.SystemPrompt})
 	}
 	for _, m := range req.Messages {
-		msg := openAIMessage{
-			Role:             string(m.Role),
-			Content:          m.Content,
-			Name:             m.Name,
-			ToolCallID:       m.ToolCallID,
-			ReasoningContent: m.ReasoningContent,
-		}
-		for _, tc := range m.ToolCalls {
-			omTC := openAIToolCall{
-				ID:   tc.ID,
-				Type: tc.Type,
-				Function: openAIFunction{
-					Name:      tc.Function.Name,
-					Arguments: tc.Function.Arguments,
-				},
-			}
-			if omTC.Type == "" {
-				omTC.Type = "function"
-			}
-			msg.ToolCalls = append(msg.ToolCalls, omTC)
-		}
-		messages = append(messages, msg)
+		messages = append(messages, openAIMessage{
+			Role:    string(m.Role),
+			Content: m.Content,
+			Name:    m.Name,
+		})
 	}
 
 	body := openAICompletionRequest{
@@ -372,33 +359,7 @@ func convertOpenAIFunctionCall(toolCalls []openAIToolCall) *FunctionCall {
 		return nil
 	}
 	return &FunctionCall{
-		ID:        toolCalls[0].ID,
 		Name:      toolCalls[0].Function.Name,
 		Arguments: toolCalls[0].Function.Arguments,
 	}
-}
-
-// convertOpenAIToolCalls converts OpenAI tool calls to the unified ToolCall slice,
-// preserving all calls and their IDs (required for multi-turn tool calling).
-func convertOpenAIToolCalls(toolCalls []openAIToolCall) []ToolCall {
-	if len(toolCalls) == 0 {
-		return nil
-	}
-	result := make([]ToolCall, 0, len(toolCalls))
-	for _, tc := range toolCalls {
-		tcType := tc.Type
-		if tcType == "" {
-			tcType = "function"
-		}
-		result = append(result, ToolCall{
-			ID:   tc.ID,
-			Type: tcType,
-			Function: FunctionCall{
-				ID:        tc.ID,
-				Name:      tc.Function.Name,
-				Arguments: tc.Function.Arguments,
-			},
-		})
-	}
-	return result
 }
