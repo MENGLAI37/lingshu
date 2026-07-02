@@ -31,39 +31,27 @@ const (
 
 // Message represents a single message in the conversation.
 type Message struct {
-	Role             MessageRole `json:"role"`
-	Content          string      `json:"content"`
-	Name             string      `json:"name,omitempty"`
-	ToolCalls        []ToolCall  `json:"tool_calls,omitempty"`
-	ToolCallID       string      `json:"tool_call_id,omitempty"`
-	ReasoningContent string      `json:"reasoning_content,omitempty"`
-}
-
-// ToolCall represents a tool call requested by the LLM (OpenAI tool calling protocol).
-type ToolCall struct {
-	ID       string        `json:"id"`
-	Type     string        `json:"type"`
-	Function FunctionCall  `json:"function"`
+	Role    MessageRole `json:"role"`
+	Content string      `json:"content"`
+	Name    string      `json:"name,omitempty"`
 }
 
 // FunctionCall represents a function call requested by the LLM.
 type FunctionCall struct {
-	ID        string `json:"id,omitempty"`
 	Name      string `json:"name"`
 	Arguments string `json:"arguments"`
 }
 
 // CompletionResponse is the unified response from any LLM provider.
 type CompletionResponse struct {
-	Content          string         `json:"content"`
-	FunctionCall     *FunctionCall  `json:"function_call,omitempty"`
-	ToolCalls        []ToolCall     `json:"tool_calls,omitempty"`
-	ReasoningContent string         `json:"reasoning_content,omitempty"`
-	FinishReason     string         `json:"finish_reason"`
-	Usage            TokenUsage     `json:"usage"`
-	Provider         ProviderType   `json:"provider"`
-	Model            string         `json:"model"`
-	Latency          time.Duration  `json:"latency"`
+	Content      string         `json:"content"`
+	FunctionCall *FunctionCall  `json:"function_call,omitempty"`
+	ToolCalls    []FunctionCall `json:"tool_calls,omitempty"`
+	FinishReason string         `json:"finish_reason"`
+	Usage        TokenUsage     `json:"usage"`
+	Provider     ProviderType   `json:"provider"`
+	Model        string         `json:"model"`
+	Latency      time.Duration  `json:"latency"`
 }
 
 // TokenUsage tracks input and output token counts.
