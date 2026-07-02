@@ -17,7 +17,7 @@ import (
 type ParsedToolCall struct {
 	Name        string         `json:"name"`
 	Arguments   map[string]any `json:"arguments"`
-	RawJSON     string         `json:"raw_json,omitempty"` // Original JSON for debugging
+	RawJSON     string         `json:"raw_json,omitempty"`     // Original JSON for debugging
 	ToolCallID  string         `json:"tool_call_id,omitempty"` // ID from LLM, required for multi-turn tool calling
 }
 
@@ -71,6 +71,34 @@ func (p *ToolCallParser) Parse(fc *llm.FunctionCall) []ParsedToolCall {
 
 	// Try fallback parsing
 	return p.fallbackParser.Parse(fc.Name, fc.Arguments)
+}
+
+// ParseToolCalls parses tool calls from []llm.ToolCall (standard OpenAI format with IDs).
+func (p *ToolCallParser) ParseToolCalls(tcs []llm.ToolCall) []ParsedToolCall {
+	if len(tcs) == 0 {
+		return nil
+	}
+
+	result := []ParsedToolCall{}
+	for _, tc := range tcs {
+		args, err := p.parseArguments(tc.Function.Arguments)
+		if err != nil {
+			// Return partial result with error indication
+			result = append(result, ParsedToolCall{
+				Name:       tc.Function.Name,
+				RawJSON:    tc.Function.Arguments,
+				ToolCallID: tc.ID,
+			})
+			continue
+		}
+		result = append(result, ParsedToolCall{
+			Name:       tc.Function.Name,
+			Arguments:  args,
+			RawJSON:    tc.Function.Arguments,
+			ToolCallID: tc.ID,
+		})
+	}
+	return result
 }
 
 // ParseFromContent parses tool calls directly from text content.

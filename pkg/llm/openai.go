@@ -88,19 +88,24 @@ func (p *OpenAIProvider) Complete(ctx context.Context, req *CompletionRequest) (
 	choice := result.Choices[0]
 	latency := time.Since(start)
 
-	var toolCalls []FunctionCall
+	var toolCalls []ToolCall
 	for _, tc := range choice.Message.ToolCalls {
-		toolCalls = append(toolCalls, FunctionCall{
-			Name:      tc.Function.Name,
-			Arguments: tc.Function.Arguments,
+		toolCalls = append(toolCalls, ToolCall{
+			ID:   tc.ID,
+			Type: tc.Type,
+			Function: Function{
+				Name:      tc.Function.Name,
+				Arguments: tc.Function.Arguments,
+			},
 		})
 	}
 
 	return &CompletionResponse{
-		Content:      choice.Message.Content,
-		FunctionCall: convertOpenAIFunctionCall(choice.Message.ToolCalls),
-		ToolCalls:    toolCalls,
-		FinishReason: choice.FinishReason,
+		Content:          choice.Message.Content,
+		FunctionCall:     convertOpenAIFunctionCall(choice.Message.ToolCalls),
+		ToolCalls:        toolCalls,
+		ReasoningContent: choice.Message.ReasoningContent,
+		FinishReason:     choice.FinishReason,
 		Usage: TokenUsage{
 			InputTokens:  result.Usage.PromptTokens,
 			OutputTokens: result.Usage.CompletionTokens,
@@ -173,11 +178,12 @@ func (p *OpenAIProvider) HealthCheck(ctx context.Context) error {
 // ===========================================================================
 
 type openAIMessage struct {
-	Role       string              `json:"role"`
-	Content    string              `json:"content"`
-	Name       string              `json:"name,omitempty"`
-	ToolCalls  []openAIToolCall    `json:"tool_calls,omitempty"`
-	ToolCallID string              `json:"tool_call_id,omitempty"`
+	Role              string           `json:"role"`
+	Content           string           `json:"content"`
+	Name              string           `json:"name,omitempty"`
+	ToolCalls         []openAIToolCall `json:"tool_calls,omitempty"`
+	ToolCallID        string           `json:"tool_call_id,omitempty"`
+	ReasoningContent  string           `json:"reasoning_content,omitempty"`
 }
 
 type openAIToolCall struct {
@@ -246,11 +252,25 @@ func (p *OpenAIProvider) buildRequestBody(req *CompletionRequest, stream bool) (
 		messages = append(messages, openAIMessage{Role: "system", Content: req.SystemPrompt})
 	}
 	for _, m := range req.Messages {
-		messages = append(messages, openAIMessage{
-			Role:    string(m.Role),
-			Content: m.Content,
-			Name:    m.Name,
-		})
+		om := openAIMessage{
+			Role:             string(m.Role),
+			Content:          m.Content,
+			Name:             m.Name,
+			ToolCallID:       m.ToolCallID,
+			ReasoningContent: m.ReasoningContent,
+		}
+		// Convert ToolCalls
+		for _, tc := range m.ToolCalls {
+			om.ToolCalls = append(om.ToolCalls, openAIToolCall{
+				ID:   tc.ID,
+				Type: tc.Type,
+				Function: openAIFunction{
+					Name:      tc.Function.Name,
+					Arguments: tc.Function.Arguments,
+				},
+			})
+		}
+		messages = append(messages, om)
 	}
 
 	body := openAICompletionRequest{
