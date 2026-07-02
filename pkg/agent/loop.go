@@ -161,10 +161,31 @@ func (al *DefaultAgentLoop) ExecuteWithTools(ctx context.Context, input string, 
 		// Parse response
 		thought := resp.Content
 
-		// Check for tool calls - first try structured function call
-		toolCalls := al.parser.Parse(resp.FunctionCall)
+		// Check for tool calls - first try structured tool calls from the response
+		// (OpenAI tool calling protocol: resp.ToolCalls carries id + name + arguments)
+		var toolCalls []ParsedToolCall
+		for _, tc := range resp.ToolCalls {
+			args := map[string]any{}
+			if tc.Function.Arguments != "" {
+				if err := json.Unmarshal([]byte(tc.Function.Arguments), &args); err != nil {
+					// Keep raw arguments as fallback; tool may still handle
+					args = map[string]any{"_raw": tc.Function.Arguments}
+				}
+			}
+			toolCalls = append(toolCalls, ParsedToolCall{
+				Name:       tc.Function.Name,
+				Arguments:  args,
+				RawJSON:    tc.Function.Arguments,
+				ToolCallID: tc.ID,
+			})
+		}
 
-		// If no structured tool calls, try parsing from content
+		// Fallback: try single FunctionCall parsing (legacy path)
+		if len(toolCalls) == 0 {
+			toolCalls = al.parser.Parse(resp.FunctionCall)
+		}
+
+		// Fallback: try parsing from content (natural language tool calls)
 		if len(toolCalls) == 0 && thought != "" {
 			toolCalls = al.parser.ParseFromContent(thought)
 		}
@@ -191,6 +212,22 @@ func (al *DefaultAgentLoop) ExecuteWithTools(ctx context.Context, input string, 
 			break
 		}
 
+		// Write the assistant message (with tool_calls) to context BEFORE executing tools.
+		// OpenAI protocol requires: assistant(tool_calls) must immediately precede tool result messages.
+		assistantToolCalls := make([]llm.ToolCall, 0, len(toolCalls))
+		for _, tc := range toolCalls {
+			argsJSON, _ := json.Marshal(tc.Arguments)
+			assistantToolCalls = append(assistantToolCalls, llm.ToolCall{
+				ID:   tc.ToolCallID,
+				Type: "function",
+				Function: llm.FunctionCall{
+					Name:      tc.Name,
+					Arguments: string(argsJSON),
+				},
+			})
+		}
+		al.contextManager.AddAssistantWithToolCalls(thought, assistantToolCalls)
+
 		// Phase: Act (Execute tools)
 		state.setState(StateExecuting)
 		state.setPhase(PhaseAct)
@@ -205,10 +242,10 @@ func (al *DefaultAgentLoop) ExecuteWithTools(ctx context.Context, input string, 
 		state.setPhase(PhaseObserve)
 		al.emitEvent(handler, "state_change", state.state, state.currentPhase, nil)
 
-		// Add tool results to context
+		// Add tool results to context (with tool_call_id to satisfy OpenAI protocol)
 		for _, execResult := range execResults {
 			resultStr := al.formatToolResult(execResult)
-			al.contextManager.AddToolResult(execResult.ToolName, resultStr)
+			al.contextManager.AddToolResult(execResult.ToolName, resultStr, execResult.ToolCallID)
 		}
 
 		// Increment iteration count
@@ -222,18 +259,21 @@ func (al *DefaultAgentLoop) ExecuteWithTools(ctx context.Context, input string, 
 
 // executeTools executes the parsed tool calls.
 func (al *DefaultAgentLoop) executeTools(ctx context.Context, toolCalls []ParsedToolCall, handler LoopEventHandler, state *LoopStateTracker) []ToolExecutionResult {
-	results := []ToolExecutionResult{}
+	results := make([]ToolExecutionResult, 0, len(toolCalls))
+	allowedCalls := []ParsedToolCall{}
+	allowedIndices := []int{} // tracks original index for result alignment
 
 	// Security check for each tool call
-	for _, tc := range toolCalls {
+	for i, tc := range toolCalls {
 		if al.securityGateway != nil {
 			evaluation, err := al.securityGateway.EvaluateRisk(ctx, tc.Name, tc.Arguments)
 			if err != nil {
 				results = append(results, ToolExecutionResult{
-					ToolName:  tc.Name,
-					Arguments: tc.Arguments,
-					Error:     fmt.Errorf("security evaluation failed: %w", err),
-					Timestamp: time.Now(),
+					ToolName:   tc.Name,
+					Arguments:  tc.Arguments,
+					ToolCallID: tc.ToolCallID,
+					Error:      fmt.Errorf("security evaluation failed: %w", err),
+					Timestamp:  time.Now(),
 				})
 				continue
 			}
@@ -241,36 +281,59 @@ func (al *DefaultAgentLoop) executeTools(ctx context.Context, toolCalls []Parsed
 			allowed, reason := al.securityGateway.IsAllowed(ctx, evaluation)
 			if !allowed {
 				results = append(results, ToolExecutionResult{
-					ToolName:  tc.Name,
-					Arguments: tc.Arguments,
-					Error:     fmt.Errorf("security blocked: %s", reason),
-					Timestamp: time.Now(),
+					ToolName:   tc.Name,
+					Arguments:  tc.Arguments,
+					ToolCallID: tc.ToolCallID,
+					Error:      fmt.Errorf("security blocked: %s", reason),
+					Timestamp:  time.Now(),
 				})
 				al.emitEvent(handler, "error", state.state, state.currentPhase, fmt.Errorf("security blocked: %s", reason))
 				continue
 			}
 		}
-	}
-
-	// Filter allowed tool calls
-	allowedCalls := []ParsedToolCall{}
-	for i, tc := range toolCalls {
-		if i < len(results) && results[i].Error != nil {
-			continue
-		}
 		allowedCalls = append(allowedCalls, tc)
+		allowedIndices = append(allowedIndices, i)
 	}
 
-	// Execute tools (parallel or sequential)
-	if al.config.EnableParallelTools && len(allowedCalls) > 1 {
-		parallelResults := al.parallelExec.ExecuteParallel(ctx, allowedCalls, al.toolRegistry)
-		results = append(results, parallelResults...)
-	} else {
-		for _, tc := range allowedCalls {
-			result := al.executeSingleTool(ctx, tc)
-			results = append(results, result)
-			al.emitEvent(handler, "tool_result", state.state, state.currentPhase, result)
+	// Execute allowed tools (parallel or sequential) and merge results preserving order
+	if len(allowedCalls) > 0 {
+		var execResults []ToolExecutionResult
+		if al.config.EnableParallelTools && len(allowedCalls) > 1 {
+			execResults = al.parallelExec.ExecuteParallel(ctx, allowedCalls, al.toolRegistry)
+		} else {
+			execResults = make([]ToolExecutionResult, 0, len(allowedCalls))
+			for _, tc := range allowedCalls {
+				r := al.executeSingleTool(ctx, tc)
+				execResults = append(execResults, r)
+				al.emitEvent(handler, "tool_result", state.state, state.currentPhase, r)
+			}
 		}
+
+		// Merge execResults back into results at their original positions
+		// results currently only has security-blocked entries appended in order;
+		// rebuild a fully ordered slice to keep tool_call_id alignment correct.
+		ordered := make([]ToolExecutionResult, len(toolCalls))
+		blockedIdx := 0
+		for i := range toolCalls {
+			if blockedIdx < len(results) && results[blockedIdx].Error != nil && results[blockedIdx].ToolName == toolCalls[i].Name && results[blockedIdx].ToolCallID == toolCalls[i].ToolCallID {
+				ordered[i] = results[blockedIdx]
+				blockedIdx++
+			}
+		}
+		for j, er := range execResults {
+			origIdx := allowedIndices[j]
+			er.ToolCallID = allowedCalls[j].ToolCallID
+			ordered[origIdx] = er
+		}
+		// Filter out zero-value entries (shouldn't happen, but be safe)
+		final := make([]ToolExecutionResult, 0, len(toolCalls))
+		for _, r := range ordered {
+			if r.Timestamp.IsZero() && r.Error == nil && r.Result == nil {
+				continue
+			}
+			final = append(final, r)
+		}
+		return final
 	}
 
 	return results
@@ -283,11 +346,12 @@ func (al *DefaultAgentLoop) executeSingleTool(ctx context.Context, tc ParsedTool
 	tool, err := al.toolRegistry.GetTool(tc.Name)
 	if err != nil {
 		return ToolExecutionResult{
-			ToolName:  tc.Name,
-			Arguments: tc.Arguments,
-			Error:     fmt.Errorf("tool not found: %w", err),
-			Duration:  time.Since(start),
-			Timestamp: start,
+			ToolName:   tc.Name,
+			Arguments:  tc.Arguments,
+			ToolCallID: tc.ToolCallID,
+			Error:      fmt.Errorf("tool not found: %w", err),
+			Duration:   time.Since(start),
+			Timestamp:  start,
 		}
 	}
 
@@ -298,12 +362,13 @@ func (al *DefaultAgentLoop) executeSingleTool(ctx context.Context, tc ParsedTool
 	result, err := tool.Execute(toolCtx, tc.Arguments)
 
 	return ToolExecutionResult{
-		ToolName:  tc.Name,
-		Arguments: tc.Arguments,
-		Result:    result,
-		Error:     err,
-		Duration:  time.Since(start),
-		Timestamp: start,
+		ToolName:   tc.Name,
+		Arguments:  tc.Arguments,
+		ToolCallID: tc.ToolCallID,
+		Result:     result,
+		Error:      err,
+		Duration:   time.Since(start),
+		Timestamp:  start,
 	}
 }
 
@@ -435,29 +500,95 @@ func formatToolDefinitions(defs []llm.FunctionDefinition) string {
 }
 
 func buildToolParameters(tool tools.Tool) map[string]interface{} {
-	// Default parameters structure
-	// Tools should implement their own parameter schema
-	return map[string]interface{}{
+	// Build parameter schema based on tool name.
+	// K8s tools require resource_type to identify the resource kind (pod/deployment/...);
+	// without it the LLM omits resource_type and tools reject with "resource_type is required".
+	properties := map[string]interface{}{
 		"namespace": map[string]interface{}{
 			"type":        "string",
-			"description": "Kubernetes namespace",
+			"description": "Kubernetes namespace (omit or empty for all namespaces)",
 		},
 		"name": map[string]interface{}{
 			"type":        "string",
 			"description": "Resource name",
 		},
 	}
+
+	switch tool.Name() {
+	case "k8s_get", "k8s_describe", "k8s_scale", "k8s_restart", "k8s_patch", "k8s_rollout":
+		properties["resource_type"] = map[string]interface{}{
+			"type":        "string",
+			"description": "Kubernetes resource type: pod, deployment, service, configmap, ingress, statefulset, replicaset, daemonset",
+			"enum":        []string{"pod", "deployment", "service", "configmap", "ingress", "statefulset", "replicaset", "daemonset"},
+		}
+	}
+	if tool.Name() == "k8s_get" {
+		properties["all_namespaces"] = map[string]interface{}{
+			"type":        "boolean",
+			"description": "If true, query across all namespaces",
+		}
+	}
+	if tool.Name() == "k8s_scale" {
+		properties["replicas"] = map[string]interface{}{
+			"type":        "integer",
+			"description": "Target replica count",
+		}
+	}
+	if tool.Name() == "k8s_patch" {
+		properties["patch_data"] = map[string]interface{}{
+			"type":        "string",
+			"description": "JSON or YAML patch data",
+		}
+	}
+	if tool.Name() == "k8s_rollout" {
+		properties["action"] = map[string]interface{}{
+			"type":        "string",
+			"description": "Rollout action: undo, restart, status",
+			"enum":        []string{"undo", "restart", "status"},
+		}
+	}
+	if tool.Name() == "k8s_logs" {
+		properties["pod_name"] = map[string]interface{}{
+			"type":        "string",
+			"description": "Pod name to fetch logs for",
+		}
+		properties["tail_lines"] = map[string]interface{}{
+			"type":        "integer",
+			"description": "Number of lines to return from the end (default 100)",
+		}
+	}
+	if tool.Name() == "k8s_events" {
+		properties["field_selector"] = map[string]interface{}{
+			"type":        "string",
+			"description": "Optional field selector to filter events",
+		}
+	}
+	if tool.Name() == "k8s_top" {
+		properties["resource_type"] = map[string]interface{}{
+			"type":        "string",
+			"description": "Resource to query: pods or nodes",
+			"enum":        []string{"pods", "nodes"},
+		}
+	}
+
+	return properties
 }
 
 func getRequiredParameters(tool tools.Tool) []string {
-	// Basic required parameters based on tool risk level
+	// Required parameters based on tool name and risk level
+	switch tool.Name() {
+	case "k8s_get", "k8s_describe", "k8s_scale", "k8s_restart", "k8s_patch", "k8s_rollout", "k8s_top":
+		return []string{"resource_type"}
+	case "k8s_logs":
+		return []string{"pod_name"}
+	}
 	switch tool.RiskLevel() {
 	case tools.RiskLevelL0:
-		return []string{"namespace"}
+		return []string{}
 	case tools.RiskLevelL1, tools.RiskLevelL2:
-		return []string{"namespace", "name"}
+		return []string{"name"}
 	case tools.RiskLevelL3, tools.RiskLevelL4:
-		return []string{"namespace", "name", "confirm"}
+		return []string{"name", "confirm"}
 	default:
 		return []string{}
 	}

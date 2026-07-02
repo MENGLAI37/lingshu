@@ -59,12 +59,13 @@ type ThinkingStep struct {
 
 // ToolExecutionResult represents the result of executing a tool.
 type ToolExecutionResult struct {
-	ToolName  string
-	Arguments map[string]any
-	Result    *tools.ToolResult
-	Error     error
-	Duration  time.Duration
-	Timestamp time.Time
+	ToolName   string
+	Arguments  map[string]any
+	Result     *tools.ToolResult
+	Error      error
+	Duration   time.Duration
+	Timestamp  time.Time
+	ToolCallID string // Links back to the LLM tool_call ID for multi-turn protocol
 }
 
 // LoopConfig holds configuration for the agent loop.
@@ -142,7 +143,8 @@ type RiskEvaluation struct {
 // ContextManager manages conversation context.
 type ContextManager interface {
 	AddMessage(role llm.MessageRole, content string)
-	AddToolResult(toolName string, result string)
+	AddAssistantWithToolCalls(content string, toolCalls []llm.ToolCall)
+	AddToolResult(toolName string, result string, toolCallID string)
 	GetMessages() []llm.Message
 	GetTokenCount() int64
 	TrimContext(maxTokens int64) error

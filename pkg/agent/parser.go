@@ -15,9 +15,10 @@ import (
 
 // ParsedToolCall represents a parsed tool call from LLM response.
 type ParsedToolCall struct {
-	Name      string         `json:"name"`
-	Arguments map[string]any `json:"arguments"`
-	RawJSON   string         `json:"raw_json,omitempty"` // Original JSON for debugging
+	Name        string         `json:"name"`
+	Arguments   map[string]any `json:"arguments"`
+	RawJSON     string         `json:"raw_json,omitempty"` // Original JSON for debugging
+	ToolCallID  string         `json:"tool_call_id,omitempty"` // ID from LLM, required for multi-turn tool calling
 }
 
 // ParseError represents an error during parsing.
