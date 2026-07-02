@@ -457,13 +457,19 @@ func (m *TUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 
-		headerHeight := 3
+		headerHeight := 2
 		footerHeight := 1
 		inputHeight := 5
-		bodyHeight := m.height - headerHeight - footerHeight - inputHeight
+		bodyPadding := 2
+		separatorHeight := 1
+		inputPadding := 2
+		chatHeight := m.height - headerHeight - footerHeight - inputHeight - bodyPadding - separatorHeight - inputPadding + 1
+		if chatHeight < 3 {
+			chatHeight = 3
+		}
 
 		m.chatView.SetWidth(m.width - 4)
-		m.chatView.SetHeight(bodyHeight - 2)
+		m.chatView.SetHeight(chatHeight)
 
 		m.input.SetWidth(m.width)
 		m.statusBar.SetWidth(m.width)
@@ -1083,12 +1089,12 @@ func (m *TUIModel) handleAIResponse(msg AIResponseMsg) {
 	}
 
 	if msg.Done {
-		m.chatView.FinishStreaming()
+		m.chatView.FinishLastAIStreaming()
 		m.aiThinking = false
 		m.streaming = false
 		m.statusBar.AddTokens(len(msg.Content) / 4)
 	} else {
-		m.chatView.AppendToLastMessage(msg.Content)
+		m.chatView.AppendToLastAIMessage(msg.Content)
 		m.streaming = true
 	}
 }

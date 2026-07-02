@@ -264,6 +264,43 @@ func (c *ChatView) AppendToLastMessage(chunk string) {
 	c.scrollToBottom()
 }
 
+// AppendToLastAIMessage appends content to the last AI message,
+// skipping over any intermediate Tool/System messages.
+// This ensures the AI response stays in one contiguous message even when
+// tool results are interleaved.
+func (c *ChatView) AppendToLastAIMessage(chunk string) {
+	aiIdx := -1
+	for i := len(c.messages) - 1; i >= 0; i-- {
+		if c.messages[i].Role == RoleAI {
+			aiIdx = i
+			break
+		}
+	}
+	if aiIdx >= 0 {
+		c.messages[aiIdx].Content += chunk
+		c.messages[aiIdx].Streaming = true
+		c.scrollToBottom()
+		return
+	}
+	// No AI message found, create a new one
+	c.AddMessage(ChatMessage{
+		Role:      RoleAI,
+		Content:   chunk,
+		Timestamp: time.Now(),
+		Streaming: true,
+	})
+}
+
+// FinishLastAIStreaming marks the last AI message (searching backwards) as not streaming.
+func (c *ChatView) FinishLastAIStreaming() {
+	for i := len(c.messages) - 1; i >= 0; i-- {
+		if c.messages[i].Role == RoleAI && c.messages[i].Streaming {
+			c.messages[i].Streaming = false
+			return
+		}
+	}
+}
+
 func (c *ChatView) FinishStreaming() {
 	if len(c.messages) > 0 {
 		c.messages[len(c.messages)-1].Streaming = false

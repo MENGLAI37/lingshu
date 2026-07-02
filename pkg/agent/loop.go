@@ -2,6 +2,8 @@ package agent
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"sync"
@@ -188,6 +190,16 @@ func (al *DefaultAgentLoop) ExecuteWithTools(ctx context.Context, input string, 
 		// Fallback: try parsing from content (natural language tool calls)
 		if len(toolCalls) == 0 && thought != "" {
 			toolCalls = al.parser.ParseFromContent(thought)
+		}
+
+		// Ensure every tool call has a unique ID.
+		// Fallback-parsed tool calls (from FunctionCall or content) don't carry IDs,
+		// but the OpenAI tool calling protocol requires tool result messages to have
+		// tool_call_id. Generate synthetic IDs so the protocol stays valid.
+		for i := range toolCalls {
+			if toolCalls[i].ToolCallID == "" {
+				toolCalls[i].ToolCallID = generateToolCallID()
+			}
 		}
 
 		// Record thinking step
@@ -592,6 +604,17 @@ func getRequiredParameters(tool tools.Tool) []string {
 	default:
 		return []string{}
 	}
+}
+
+// generateToolCallID generates a unique synthetic ID for tool calls that lack one.
+// Format: call_<8 hex chars> (same style as OpenAI tool call IDs).
+func generateToolCallID() string {
+	b := make([]byte, 8)
+	if _, err := rand.Read(b); err != nil {
+		// Fallback: use timestamp + nanos if crypto rand fails
+		return fmt.Sprintf("call_%d", time.Now().UnixNano())
+	}
+	return "call_" + hex.EncodeToString(b)
 }
 
 // Agent system prompt template
