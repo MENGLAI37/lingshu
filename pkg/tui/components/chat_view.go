@@ -176,22 +176,22 @@ func wrapText(text string, width int) []string {
 			continue
 		}
 
-		words := strings.Fields(para)
 		currentLine := ""
 		currentLen := 0
 
-		for _, word := range words {
-			wordLen := lipgloss.Width(word)
-			if currentLen == 0 {
-				currentLine = word
-				currentLen = wordLen
-			} else if currentLen+1+wordLen <= width {
-				currentLine += " " + word
-				currentLen += 1 + wordLen
-			} else {
+		for _, r := range para {
+			charLen := 1
+			if r >= 0x4e00 && r <= 0x9fff || r >= 0x3000 && r <= 0x303f || r >= 0xff00 && r <= 0xffef {
+				charLen = 2
+			}
+
+			if currentLen+charLen > width && currentLen > 0 {
 				lines = append(lines, currentLine)
-				currentLine = word
-				currentLen = wordLen
+				currentLine = string(r)
+				currentLen = charLen
+			} else {
+				currentLine += string(r)
+				currentLen += charLen
 			}
 		}
 
@@ -264,6 +264,43 @@ func (c *ChatView) AppendToLastMessage(chunk string) {
 	c.scrollToBottom()
 }
 
+// AppendToLastAIMessage appends content to the last AI message,
+// skipping over any intermediate Tool/System messages.
+// This ensures the AI response stays in one contiguous message even when
+// tool results are interleaved.
+func (c *ChatView) AppendToLastAIMessage(chunk string) {
+	aiIdx := -1
+	for i := len(c.messages) - 1; i >= 0; i-- {
+		if c.messages[i].Role == RoleAI {
+			aiIdx = i
+			break
+		}
+	}
+	if aiIdx >= 0 {
+		c.messages[aiIdx].Content += chunk
+		c.messages[aiIdx].Streaming = true
+		c.scrollToBottom()
+		return
+	}
+	// No AI message found, create a new one
+	c.AddMessage(ChatMessage{
+		Role:      RoleAI,
+		Content:   chunk,
+		Timestamp: time.Now(),
+		Streaming: true,
+	})
+}
+
+// FinishLastAIStreaming marks the last AI message (searching backwards) as not streaming.
+func (c *ChatView) FinishLastAIStreaming() {
+	for i := len(c.messages) - 1; i >= 0; i-- {
+		if c.messages[i].Role == RoleAI && c.messages[i].Streaming {
+			c.messages[i].Streaming = false
+			return
+		}
+	}
+}
+
 func (c *ChatView) FinishStreaming() {
 	if len(c.messages) > 0 {
 		c.messages[len(c.messages)-1].Streaming = false
@@ -287,7 +324,7 @@ func (c *ChatView) UpdateLastToolMessage(content string) {
 }
 
 func (c *ChatView) scrollToBottom() {
-	totalLines := c.countTotalLines()
+	totalLines := len(c.renderAllLines())
 	if totalLines > c.height {
 		c.scrollPos = totalLines - c.height
 	} else {
@@ -296,12 +333,7 @@ func (c *ChatView) scrollToBottom() {
 }
 
 func (c *ChatView) countTotalLines() int {
-	total := 0
-	for _, msg := range c.messages {
-		lines := wrapText(msg.Content, c.width-4)
-		total += len(lines) + 2
-	}
-	return total
+	return len(c.renderAllLines())
 }
 
 func (c *ChatView) ScrollUp(n int) {
@@ -342,7 +374,17 @@ func (c *ChatView) SetWidth(w int) {
 }
 
 func (c *ChatView) SetHeight(h int) {
+	prevHeight := c.height
 	c.height = h
+	// If we were at the bottom before resizing, stay at the bottom.
+	// If new height is larger, scroll position might need to go down.
+	totalLines := len(c.renderAllLines())
+	if totalLines <= c.height {
+		c.scrollPos = 0
+	} else if c.scrollPos+c.height > totalLines {
+		c.scrollPos = totalLines - c.height
+	}
+	_ = prevHeight
 }
 
 func (c *ChatView) Height() int {

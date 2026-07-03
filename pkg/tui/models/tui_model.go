@@ -274,6 +274,34 @@ func (m *TUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 		}
 
+		// PgUp / PgDn - Scroll chat (always available)
+		if msg.Type == tea.KeyPgUp {
+			if !m.commandPreview.Visible() && !m.highlighted.Visible() && !m.showHelp && !m.configPanel.Visible() {
+				m.chatView.ScrollUp(m.chatView.Height() / 2)
+				return m, nil
+			}
+		}
+		if msg.Type == tea.KeyPgDown {
+			if !m.commandPreview.Visible() && !m.highlighted.Visible() && !m.showHelp && !m.configPanel.Visible() {
+				m.chatView.ScrollDown(m.chatView.Height() / 2)
+				return m, nil
+			}
+		}
+
+		// Home / End - Jump to top/bottom (always available)
+		if msg.Type == tea.KeyHome {
+			if !m.commandPreview.Visible() && !m.highlighted.Visible() && !m.showHelp && !m.configPanel.Visible() {
+				m.chatView.ScrollToTop()
+				return m, nil
+			}
+		}
+		if msg.Type == tea.KeyEnd {
+			if !m.commandPreview.Visible() && !m.highlighted.Visible() && !m.showHelp && !m.configPanel.Visible() {
+				m.chatView.ScrollToBottom()
+				return m, nil
+			}
+		}
+
 		// ============================================================
 		// L1: Normal mode (input NOT focused) - Global shortcuts
 		// ============================================================
@@ -457,13 +485,20 @@ func (m *TUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 
-		headerHeight := 3
+		headerHeight := 1
 		footerHeight := 1
-		inputHeight := 5
-		bodyHeight := m.height - headerHeight - footerHeight - inputHeight
+		inputPromptHeight := 1
+		inputTextareaHeight := 3
+		chatPadding := 2
+		separatorHeight := 1
+		totalFixed := headerHeight + footerHeight + inputPromptHeight + inputTextareaHeight + chatPadding + separatorHeight
+		chatHeight := m.height - totalFixed
+		if chatHeight < 3 {
+			chatHeight = 3
+		}
 
 		m.chatView.SetWidth(m.width - 4)
-		m.chatView.SetHeight(bodyHeight - 2)
+		m.chatView.SetHeight(chatHeight)
 
 		m.input.SetWidth(m.width)
 		m.statusBar.SetWidth(m.width)
@@ -628,22 +663,17 @@ func (m *TUIModel) renderBody() string {
 		Width(m.width).
 		Render(strings.Repeat("─", m.width))
 
-	bodyHeight := m.height - 8
-	if bodyHeight < 5 {
-		bodyHeight = 5
-	}
-
-	body := lipgloss.NewStyle().
+	chatSection := lipgloss.NewStyle().
 		Padding(1, 2).
-		Height(bodyHeight).
+		Height(m.chatView.Height() + 2).
 		Render(chatArea)
 
 	inputSection := lipgloss.NewStyle().
-		Padding(1, 2).
+		Padding(0, 2).
 		Render(inputArea)
 
 	return lipgloss.JoinVertical(lipgloss.Left,
-		body,
+		chatSection,
 		separator,
 		inputSection,
 	)
@@ -777,6 +807,7 @@ func (m *TUIModel) handleUserInput(input string) {
 	})
 
 	m.aiThinking = true
+	m.statusBar.SetAIStatus(components.AIStatusThinking)
 	m.statusBar.AddTokens(len(input) / 4)
 
 	// Use real Agent Loop if available
@@ -792,6 +823,8 @@ func (m *TUIModel) handleUserInput(input string) {
 func (m *TUIModel) runAgentLoop(userInput string) {
 	ctx := context.Background()
 
+	responseStarted := false
+
 	// Create event handler to process agent events
 	eventHandler := func(event agent.LoopEvent) {
 		switch event.Type {
@@ -800,7 +833,10 @@ func (m *TUIModel) runAgentLoop(userInput string) {
 			// Status bar already shows AI state via SetAIStatus.
 			if thought, ok := event.Data.(string); ok && thought != "" {
 				m.statusBar.SetAIStatus(components.AIStatusThinking)
-				m.SendMessage(AIResponseMsg{Content: thought + "\n\n", Done: false})
+				if !responseStarted {
+					m.SendMessage(AIResponseMsg{Content: thought, Done: false})
+					responseStarted = true
+				}
 			}
 		case "state_change":
 			// Only update status bar, do NOT send chat messages.
@@ -821,7 +857,7 @@ func (m *TUIModel) runAgentLoop(userInput string) {
 		case "error":
 			if err, ok := event.Data.(error); ok {
 				m.statusBar.SetAIStatus(components.AIStatusError)
-				m.SendMessage(AIResponseMsg{Content: fmt.Sprintf("错误: %v\n\n", err), Done: true})
+				m.SendMessage(AIResponseMsg{Content: fmt.Sprintf("\n错误: %v\n\n", err), Done: true})
 			}
 		}
 	}
@@ -836,25 +872,33 @@ func (m *TUIModel) runAgentLoop(userInput string) {
 			Error:   err,
 		})
 		m.aiThinking = false
+		m.statusBar.SetAIStatus(components.AIStatusError)
 		return
 	}
 
-	// Send final response
-	if result.FinalResponse != "" {
+	// Send final response only if we haven't shown it via thinking events
+	// (when there are tool calls, the final response is the summary after all iterations)
+	if result.FinalResponse != "" && !responseStarted {
+		m.SendMessage(AIResponseMsg{
+			Content: result.FinalResponse + "\n",
+			Done:    true,
+		})
+	} else if result.FinalResponse != "" {
 		m.SendMessage(AIResponseMsg{
 			Content: "\n" + result.FinalResponse + "\n",
 			Done:    true,
 		})
-	} else if len(result.ToolResults) > 0 {
+	} else if len(result.ToolResults) > 0 && !responseStarted {
 		// Generate summary from tool results
 		summary := m.generateDiagnosisSummary(result.ToolResults)
 		m.SendMessage(AIResponseMsg{
-			Content: "\n" + summary + "\n",
+			Content: summary + "\n",
 			Done:    true,
 		})
 	}
 
 	m.aiThinking = false
+	m.statusBar.SetAIStatus(components.AIStatusIdle)
 }
 
 // formatToolExecutionResult formats a tool execution result for display
@@ -1071,16 +1115,18 @@ func (m *TUIModel) handleAIResponse(msg AIResponseMsg) {
 		})
 		m.aiThinking = false
 		m.streaming = false
+		m.statusBar.SetAIStatus(components.AIStatusError)
 		return
 	}
 
 	if msg.Done {
-		m.chatView.FinishStreaming()
+		m.chatView.FinishLastAIStreaming()
 		m.aiThinking = false
 		m.streaming = false
+		m.statusBar.SetAIStatus(components.AIStatusIdle)
 		m.statusBar.AddTokens(len(msg.Content) / 4)
 	} else {
-		m.chatView.AppendToLastMessage(msg.Content)
+		m.chatView.AppendToLastAIMessage(msg.Content)
 		m.streaming = true
 	}
 }

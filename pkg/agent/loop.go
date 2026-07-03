@@ -159,8 +159,20 @@ func (al *DefaultAgentLoop) ExecuteWithTools(ctx context.Context, input string, 
 		// Parse response
 		thought := resp.Content
 
-		// Check for tool calls
-		toolCalls := al.parser.Parse(resp.FunctionCall)
+		// Parse tool calls from ToolCalls (standard) or FunctionCall (legacy)
+		var toolCalls []ParsedToolCall
+		if len(resp.ToolCalls) > 0 {
+			toolCalls = al.parser.ParseToolCalls(resp.ToolCalls)
+		} else if resp.FunctionCall != nil {
+			toolCalls = al.parser.Parse(resp.FunctionCall)
+		}
+
+		// Generate synthetic IDs for fallback-parsed tool calls (no ID from LLM)
+		for i := range toolCalls {
+			if toolCalls[i].ToolCallID == "" {
+				toolCalls[i].ToolCallID = generateToolCallID()
+			}
+		}
 
 		// Record thinking step
 		thinkingStep := ThinkingStep{
@@ -188,6 +200,21 @@ func (al *DefaultAgentLoop) ExecuteWithTools(ctx context.Context, input string, 
 		// Emit thinking event for intermediate analysis (only when there are tool calls)
 		al.emitEvent(handler, "thinking", state.state, state.currentPhase, thought)
 
+		// Add assistant message with tool calls to context (required by OpenAI tool calling protocol)
+		assistantToolCalls := make([]llm.ToolCall, len(toolCalls))
+		for i, tc := range toolCalls {
+			argsJSON, _ := json.Marshal(tc.Arguments)
+			assistantToolCalls[i] = llm.ToolCall{
+				ID:   tc.ToolCallID,
+				Type: "function",
+				Function: llm.Function{
+					Name:      tc.Name,
+					Arguments: string(argsJSON),
+				},
+			}
+		}
+		al.contextManager.AddAssistantWithToolCalls(thought, assistantToolCalls, resp.ReasoningContent)
+
 		// Phase: Act (Execute tools)
 		state.setState(StateExecuting)
 		state.setPhase(PhaseAct)
@@ -202,10 +229,10 @@ func (al *DefaultAgentLoop) ExecuteWithTools(ctx context.Context, input string, 
 		state.setPhase(PhaseObserve)
 		al.emitEvent(handler, "state_change", state.state, state.currentPhase, nil)
 
-		// Add tool results to context
+		// Add tool results to context with proper tool_call_id
 		for _, execResult := range execResults {
 			resultStr := al.formatToolResult(execResult)
-			al.contextManager.AddToolResult(execResult.ToolName, resultStr)
+			al.contextManager.AddToolResult(execResult.ToolName, resultStr, execResult.ToolCallID)
 		}
 
 		// Increment iteration count
@@ -262,6 +289,9 @@ func (al *DefaultAgentLoop) executeTools(ctx context.Context, toolCalls []Parsed
 	if al.config.EnableParallelTools && len(allowedCalls) > 1 {
 		parallelResults := al.parallelExec.ExecuteParallel(ctx, allowedCalls, al.toolRegistry)
 		results = append(results, parallelResults...)
+		for _, pr := range parallelResults {
+			al.emitEvent(handler, "tool_result", state.state, state.currentPhase, pr)
+		}
 	} else {
 		for _, tc := range allowedCalls {
 			result := al.executeSingleTool(ctx, tc)
@@ -280,11 +310,12 @@ func (al *DefaultAgentLoop) executeSingleTool(ctx context.Context, tc ParsedTool
 	tool, err := al.toolRegistry.GetTool(tc.Name)
 	if err != nil {
 		return ToolExecutionResult{
-			ToolName:  tc.Name,
-			Arguments: tc.Arguments,
-			Error:     fmt.Errorf("tool not found: %w", err),
-			Duration:  time.Since(start),
-			Timestamp: start,
+			ToolName:   tc.Name,
+			Arguments:  tc.Arguments,
+			ToolCallID: tc.ToolCallID,
+			Error:      fmt.Errorf("tool not found: %w", err),
+			Duration:   time.Since(start),
+			Timestamp:  start,
 		}
 	}
 
@@ -295,12 +326,13 @@ func (al *DefaultAgentLoop) executeSingleTool(ctx context.Context, tc ParsedTool
 	result, err := tool.Execute(toolCtx, tc.Arguments)
 
 	return ToolExecutionResult{
-		ToolName:  tc.Name,
-		Arguments: tc.Arguments,
-		Result:    result,
-		Error:     err,
-		Duration:  time.Since(start),
-		Timestamp: start,
+		ToolName:   tc.Name,
+		Arguments:  tc.Arguments,
+		ToolCallID: tc.ToolCallID,
+		Result:     result,
+		Error:      err,
+		Duration:   time.Since(start),
+		Timestamp:  start,
 	}
 }
 
@@ -374,6 +406,15 @@ func (al *DefaultAgentLoop) emitEvent(handler LoopEventHandler, eventType string
 			Timestamp: time.Now(),
 		})
 	}
+}
+
+// generateToolCallID generates a synthetic tool call ID for fallback-parsed tool calls.
+func generateToolCallID() string {
+	b := make([]byte, 4)
+	for i := range b {
+		b[i] = "0123456789abcdef"[time.Now().UnixNano()>>uint(i*8)&0xf]
+	}
+	return fmt.Sprintf("call_%s", string(b))
 }
 
 // ===========================================================================

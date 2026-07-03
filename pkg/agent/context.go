@@ -16,11 +16,15 @@ import (
 
 // ContextMessage represents a message with metadata for context management.
 type ContextMessage struct {
-	Role        llm.MessageRole
-	Content     string
-	TokenCount  int64
-	Timestamp   time.Time
-	IsKeyContext bool // Whether this message is critical and should be preserved
+	Role             llm.MessageRole
+	Content          string
+	TokenCount       int64
+	Timestamp        time.Time
+	IsKeyContext     bool             // Whether this message is critical and should be preserved
+	ToolCalls        []llm.ToolCall   // For assistant messages that requested tool calls
+	ToolCallID       string           // For tool result messages, links back to the tool call
+	Name             string           // Tool name for tool result messages
+	ReasoningContent string           // For assistant messages from reasoning models (DeepSeek thinking mode)
 }
 
 // DefaultContextManager implements context window management.
@@ -58,8 +62,35 @@ func (cm *DefaultContextManager) AddMessage(role llm.MessageRole, content string
 	cm.currentTokens += tokenCount
 }
 
+// AddAssistantWithToolCalls adds an assistant message that requests tool calls.
+// This must be added before the corresponding tool result messages to satisfy
+// the OpenAI tool calling protocol (assistant tool_calls must precede tool messages).
+func (cm *DefaultContextManager) AddAssistantWithToolCalls(content string, toolCalls []llm.ToolCall, reasoningContent string) {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+
+	tokenCount := estimateTokens(content)
+	for _, tc := range toolCalls {
+		tokenCount += estimateTokens(tc.Function.Name + tc.Function.Arguments)
+	}
+	tokenCount += estimateTokens(reasoningContent)
+
+	msg := ContextMessage{
+		Role:             llm.RoleAssistant,
+		Content:          content,
+		TokenCount:       tokenCount,
+		Timestamp:        time.Now(),
+		ToolCalls:        toolCalls,
+		ReasoningContent: reasoningContent,
+	}
+
+	cm.messages = append(cm.messages, msg)
+	cm.currentTokens += tokenCount
+}
+
 // AddToolResult adds a tool execution result to the context.
-func (cm *DefaultContextManager) AddToolResult(toolName string, result string) {
+// toolCallID links this result to the corresponding assistant tool_call (required by OpenAI protocol).
+func (cm *DefaultContextManager) AddToolResult(toolName string, result string, toolCallID string) {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
 
@@ -71,6 +102,8 @@ func (cm *DefaultContextManager) AddToolResult(toolName string, result string) {
 		Content:    content,
 		TokenCount: tokenCount,
 		Timestamp:  time.Now(),
+		ToolCallID: toolCallID,
+		Name:       toolName,
 	}
 
 	cm.messages = append(cm.messages, msg)
@@ -94,10 +127,15 @@ func (cm *DefaultContextManager) GetMessages() []llm.Message {
 
 	// Convert context messages
 	for _, ctxMsg := range cm.messages {
-		result = append(result, llm.Message{
-			Role:    ctxMsg.Role,
-			Content: ctxMsg.Content,
-		})
+		msg := llm.Message{
+			Role:             ctxMsg.Role,
+			Content:          ctxMsg.Content,
+			Name:             ctxMsg.Name,
+			ToolCallID:       ctxMsg.ToolCallID,
+			ToolCalls:        ctxMsg.ToolCalls,
+			ReasoningContent: ctxMsg.ReasoningContent,
+		}
+		result = append(result, msg)
 	}
 
 	return result
@@ -455,8 +493,12 @@ func (acm *AdvancedContextManager) AddMessage(role llm.MessageRole, content stri
 	acm.base.AddMessage(role, content)
 }
 
-func (acm *AdvancedContextManager) AddToolResult(toolName string, result string) {
-	acm.base.AddToolResult(toolName, result)
+func (acm *AdvancedContextManager) AddAssistantWithToolCalls(content string, toolCalls []llm.ToolCall, reasoningContent string) {
+	acm.base.AddAssistantWithToolCalls(content, toolCalls, reasoningContent)
+}
+
+func (acm *AdvancedContextManager) AddToolResult(toolName string, result string, toolCallID string) {
+	acm.base.AddToolResult(toolName, result, toolCallID)
 }
 
 func (acm *AdvancedContextManager) GetMessages() []llm.Message {

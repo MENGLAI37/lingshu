@@ -102,11 +102,12 @@ func (pe *ParallelExecutor) executeSingle(ctx context.Context, tc ParsedToolCall
 	tool, err := registry.GetTool(tc.Name)
 	if err != nil {
 		return ToolExecutionResult{
-			ToolName:  tc.Name,
-			Arguments: tc.Arguments,
-			Error:     fmt.Errorf("tool not found: %w", err),
-			Duration:  time.Since(start),
-			Timestamp: start,
+			ToolName:   tc.Name,
+			Arguments:  tc.Arguments,
+			ToolCallID: tc.ToolCallID,
+			Error:      fmt.Errorf("tool not found: %w", err),
+			Duration:   time.Since(start),
+			Timestamp:  start,
 		}
 	}
 
@@ -123,12 +124,13 @@ func (pe *ParallelExecutor) executeSingle(ctx context.Context, tc ParsedToolCall
 	}
 
 	return ToolExecutionResult{
-		ToolName:  tc.Name,
-		Arguments: tc.Arguments,
-		Result:    result,
-		Error:     err,
-		Duration:  time.Since(start),
-		Timestamp: start,
+		ToolName:   tc.Name,
+		Arguments:  tc.Arguments,
+		ToolCallID: tc.ToolCallID,
+		Result:     result,
+		Error:      err,
+		Duration:   time.Since(start),
+		Timestamp:  start,
 	}
 }
 
