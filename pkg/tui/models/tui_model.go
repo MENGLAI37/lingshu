@@ -823,25 +823,23 @@ func (m *TUIModel) handleUserInput(input string) {
 func (m *TUIModel) runAgentLoop(userInput string) {
 	ctx := context.Background()
 
-	responseStarted := false
+	// finalResponseContent tracks whether the final response text has already
+	// been emitted via thinking events (to avoid duplication).
+	finalResponseContent := ""
 
 	// Create event handler to process agent events
 	eventHandler := func(event agent.LoopEvent) {
 		switch event.Type {
 		case "thinking":
-			// Only show non-empty thinking content in chat.
-			// Status bar already shows AI state via SetAIStatus.
+			// Append thinking content to the last AI message.
+			// This accumulates all analysis across iterations in one coherent message.
 			if thought, ok := event.Data.(string); ok && thought != "" {
 				m.statusBar.SetAIStatus(components.AIStatusThinking)
-				if !responseStarted {
-					m.SendMessage(AIResponseMsg{Content: thought, Done: false})
-					responseStarted = true
-				}
+				m.SendMessage(AIResponseMsg{Content: thought + "\n\n", Done: false})
+				finalResponseContent = thought
 			}
 		case "state_change":
 			// Only update status bar, do NOT send chat messages.
-			// The previous code sent "正在执行工具..." / "分析结果..."
-			// repeatedly, flooding the chat area and hiding actual results.
 			switch event.State {
 			case agent.StateExecuting:
 				m.statusBar.SetAIStatus(components.AIStatusExecuting)
@@ -876,26 +874,17 @@ func (m *TUIModel) runAgentLoop(userInput string) {
 		return
 	}
 
-	// Send final response only if we haven't shown it via thinking events
-	// (when there are tool calls, the final response is the summary after all iterations)
-	if result.FinalResponse != "" && !responseStarted {
+	// Send final response.
+	// If the final response was already shown via a thinking event, just mark Done.
+	// Otherwise, send the final response text first, then mark Done.
+	if result.FinalResponse != "" && result.FinalResponse != finalResponseContent {
 		m.SendMessage(AIResponseMsg{
 			Content: result.FinalResponse + "\n",
-			Done:    true,
-		})
-	} else if result.FinalResponse != "" {
-		m.SendMessage(AIResponseMsg{
-			Content: "\n" + result.FinalResponse + "\n",
-			Done:    true,
-		})
-	} else if len(result.ToolResults) > 0 && !responseStarted {
-		// Generate summary from tool results
-		summary := m.generateDiagnosisSummary(result.ToolResults)
-		m.SendMessage(AIResponseMsg{
-			Content: summary + "\n",
-			Done:    true,
+			Done:    false,
 		})
 	}
+	// Always mark the last AI message as done (finishes streaming state).
+	m.SendMessage(AIResponseMsg{Done: true})
 
 	m.aiThinking = false
 	m.statusBar.SetAIStatus(components.AIStatusIdle)
@@ -1120,6 +1109,10 @@ func (m *TUIModel) handleAIResponse(msg AIResponseMsg) {
 	}
 
 	if msg.Done {
+		// If content is provided along with Done=true, append it first then finish.
+		if msg.Content != "" {
+			m.chatView.AppendToLastAIMessage(msg.Content)
+		}
 		m.chatView.FinishLastAIStreaming()
 		m.aiThinking = false
 		m.streaming = false
