@@ -170,9 +170,10 @@ func (al *DefaultAgentLoop) ExecuteWithTools(ctx context.Context, input string, 
 			Timestamp: time.Now(),
 		}
 		result.ThinkingHistory = append(result.ThinkingHistory, thinkingStep)
-		al.emitEvent(handler, "thinking", state.state, state.currentPhase, thought)
 
 		// If no tool calls, we're done
+		// Do NOT emit thinking event here; the final response will be sent
+		// by the caller (runAgentLoop) to avoid duplication.
 		if len(toolCalls) == 0 {
 			state.setState(StateResponding)
 			al.emitEvent(handler, "state_change", state.state, state.currentPhase, nil)
@@ -183,6 +184,9 @@ func (al *DefaultAgentLoop) ExecuteWithTools(ctx context.Context, input string, 
 			result.TotalIterations = state.iterationCount
 			break
 		}
+
+		// Emit thinking event for intermediate analysis (only when there are tool calls)
+		al.emitEvent(handler, "thinking", state.state, state.currentPhase, thought)
 
 		// Phase: Act (Execute tools)
 		state.setState(StateExecuting)
