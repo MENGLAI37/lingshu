@@ -829,7 +829,9 @@ func (m *TUIModel) runAgentLoop(userInput string) {
 	eventHandler := func(event agent.LoopEvent) {
 		switch event.Type {
 		case "thinking":
-			if thought, ok := event.Data.(string); ok {
+			// Only show non-empty thinking content in chat.
+			// Status bar already shows AI state via SetAIStatus.
+			if thought, ok := event.Data.(string); ok && thought != "" {
 				m.statusBar.SetAIStatus(components.AIStatusThinking)
 				if !responseStarted {
 					m.SendMessage(AIResponseMsg{Content: thought, Done: false})
@@ -837,21 +839,18 @@ func (m *TUIModel) runAgentLoop(userInput string) {
 				}
 			}
 		case "state_change":
+			// Only update status bar, do NOT send chat messages.
+			// The previous code sent "正在执行工具..." / "分析结果..."
+			// repeatedly, flooding the chat area and hiding actual results.
 			switch event.State {
 			case agent.StateExecuting:
 				m.statusBar.SetAIStatus(components.AIStatusExecuting)
-				if !responseStarted {
-					m.SendMessage(AIResponseMsg{Content: "正在执行工具...\n\n", Done: false})
-					responseStarted = true
-				} else {
-					m.SendMessage(AIResponseMsg{Content: "\n正在执行工具...\n\n", Done: false})
-				}
 			case agent.StateObserving:
 				m.statusBar.SetAIStatus(components.AIStatusThinking)
-				m.SendMessage(AIResponseMsg{Content: "\n分析结果中...\n\n", Done: false})
 			}
 		case "tool_result":
 			if result, ok := event.Data.(agent.ToolExecutionResult); ok {
+				m.statusBar.SetAIStatus(components.AIStatusExecuting)
 				formattedResult := m.formatToolExecutionResult(result)
 				m.SendMessage(ToolResultMsg{Content: formattedResult})
 			}
