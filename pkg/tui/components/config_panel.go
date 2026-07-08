@@ -256,7 +256,14 @@ func (c *ConfigPanel) initAddFields() {
 }
 
 func (c *ConfigPanel) saveConfig() tea.Cmd {
+	var currentProviderName string
+
 	switch c.mode {
+	case modeList:
+		if c.currentIndex < 0 || c.currentIndex >= len(c.providers) {
+			return nil
+		}
+		currentProviderName = c.providers[c.currentIndex].Name
 	case modeEdit:
 		if c.selectedIndex < 0 || c.selectedIndex >= len(c.providers) {
 			return nil
@@ -276,6 +283,7 @@ func (c *ConfigPanel) saveConfig() tea.Cmd {
 			IsLocal:    c.providers[c.selectedIndex].IsLocal,
 			MaxRetries: c.providers[c.selectedIndex].MaxRetries,
 		}
+		currentProviderName = name
 	case modeAdd:
 		name := strings.TrimSpace(c.inputFields[0].Value())
 		model := strings.TrimSpace(c.inputFields[1].Value())
@@ -303,11 +311,11 @@ func (c *ConfigPanel) saveConfig() tea.Cmd {
 			MaxRetries: 3,
 		})
 		c.currentIndex = len(c.providers) - 1
+		currentProviderName = name
 	}
 
-	currentCfg := config.GetLLMConfig()
 	newCfg := &config.LLMConfig{
-		CurrentProvider: currentCfg.CurrentProvider,
+		CurrentProvider: currentProviderName,
 		Providers:       c.providers,
 	}
 
