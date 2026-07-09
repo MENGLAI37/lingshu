@@ -348,6 +348,7 @@ func (al *DefaultAgentLoop) buildCompletionRequest(toolDefs []llm.FunctionDefini
 		Temperature:  0.7,
 		MaxTokens:    4000,
 		Functions:    toolDefs,
+		ToolChoice:   "required",
 		Stream:       false,
 		SystemPrompt: systemPrompt,
 	}
@@ -473,18 +474,7 @@ func formatToolDefinitions(defs []llm.FunctionDefinition) string {
 }
 
 func buildToolParameters(tool tools.Tool) map[string]interface{} {
-	// Default parameters structure
-	// Tools should implement their own parameter schema
-	return map[string]interface{}{
-		"namespace": map[string]interface{}{
-			"type":        "string",
-			"description": "Kubernetes namespace",
-		},
-		"name": map[string]interface{}{
-			"type":        "string",
-			"description": "Resource name",
-		},
-	}
+	return tool.ParameterSchema()
 }
 
 func getRequiredParameters(tool tools.Tool) []string {
@@ -504,10 +494,12 @@ func getRequiredParameters(tool tools.Tool) []string {
 // Agent system prompt template
 const agentSystemPrompt = `You are a Kubernetes SRE assistant with access to tools for cluster operations.
 
-Your role is to:
-1. Analyze user requests and determine the appropriate actions
-2. Use available tools to gather information and make changes
-3. Provide clear, actionable responses based on tool results
+CRITICAL RULES:
+1. You MUST use the available tools to execute operations. NEVER output kubectl commands for the user to run manually.
+2. ALWAYS call tools to gather real cluster data before making conclusions.
+3. Do NOT ask the user to execute commands. You have direct access to the cluster via tools.
+4. For diagnosis tasks, proactively use read-only tools (k8s_get, k8s_describe, k8s_logs, k8s_events) to investigate.
+5. After gathering data with tools, analyze the results and provide a clear diagnosis.
 
 Available tools:
 {{tools}}
@@ -518,5 +510,4 @@ Guidelines:
 - For risky operations (L2+), explain the impact before executing
 - If you encounter errors, try alternative approaches
 - Keep responses concise and focused on the user's request
-
-Respond with clear analysis and use tool_call when you need to execute operations.`
+- NEVER say "please run this command" or "execute the following". Use tools directly.`

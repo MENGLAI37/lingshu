@@ -96,6 +96,7 @@ type CompletionRequest struct {
 	Temperature  float64
 	MaxTokens    int
 	Functions    []FunctionDefinition
+	ToolChoice   string // "auto", "required", "none"
 	Stream       bool
 	SystemPrompt string
 }

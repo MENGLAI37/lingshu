@@ -35,6 +35,28 @@ func (t *GetTool) Description() string {
 	return "Get Kubernetes resources (pods, deployments, services, events, ingresses, configmaps)"
 }
 
+func (t *GetTool) ParameterSchema() map[string]interface{} {
+	return map[string]interface{}{
+		"resource_type": map[string]interface{}{
+			"type":        "string",
+			"enum":        []string{"pod", "pods", "deployment", "deployments", "service", "services", "event", "events", "ingress", "ingresses", "configmap", "configmaps"},
+			"description": "Kubernetes resource type to get (e.g. pod, deployment, service, event, ingress, configmap)",
+		},
+		"name": map[string]interface{}{
+			"type":        "string",
+			"description": "Resource name (optional, lists all if empty)",
+		},
+		"namespace": map[string]interface{}{
+			"type":        "string",
+			"description": "Kubernetes namespace (defaults to 'default' if empty)",
+		},
+		"all_namespaces": map[string]interface{}{
+			"type":        "boolean",
+			"description": "Get resources from all namespaces",
+		},
+	}
+}
+
 func (t *GetTool) Execute(ctx context.Context, params map[string]any) (*tools.ToolResult, error) {
 	start := time.Now()
 

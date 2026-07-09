@@ -32,6 +32,24 @@ func (t *RestartTool) Description() string {
 	return "Restart Kubernetes resources (deployments, statefulsets, daemonsets)"
 }
 
+func (t *RestartTool) ParameterSchema() map[string]interface{} {
+	return map[string]interface{}{
+		"resource_type": map[string]interface{}{
+			"type":        "string",
+			"enum":        []string{"deployment", "deployments", "deploy", "statefulset", "statefulsets", "sts", "daemonset", "daemonsets", "ds"},
+			"description": "Kubernetes resource type to restart",
+		},
+		"name": map[string]interface{}{
+			"type":        "string",
+			"description": "Resource name (required)",
+		},
+		"namespace": map[string]interface{}{
+			"type":        "string",
+			"description": "Kubernetes namespace (defaults to 'default' if empty)",
+		},
+	}
+}
+
 func (t *RestartTool) Execute(ctx context.Context, params map[string]any) (*tools.ToolResult, error) {
 	start := time.Now()
 

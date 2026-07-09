@@ -34,6 +34,27 @@ func (t *EventsTool) Description() string {
 	return "Get Kubernetes events with filtering options"
 }
 
+func (t *EventsTool) ParameterSchema() map[string]interface{} {
+	return map[string]interface{}{
+		"namespace": map[string]interface{}{
+			"type":        "string",
+			"description": "Kubernetes namespace (defaults to 'default' if empty)",
+		},
+		"all_namespaces": map[string]interface{}{
+			"type":        "boolean",
+			"description": "Get events from all namespaces",
+		},
+		"field_selector": map[string]interface{}{
+			"type":        "string",
+			"description": "Field selector filter (e.g. 'involvedObject.name=pod-name,involvedObject.kind=Pod')",
+		},
+		"limit": map[string]interface{}{
+			"type":        "integer",
+			"description": "Maximum number of events to return (defaults to 100)",
+		},
+	}
+}
+
 func (t *EventsTool) Execute(ctx context.Context, params map[string]any) (*tools.ToolResult, error) {
 	start := time.Now()
 

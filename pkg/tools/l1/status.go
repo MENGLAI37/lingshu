@@ -33,6 +33,20 @@ func (t *StatusTool) Description() string {
 	return "Get cluster and resource status summary"
 }
 
+func (t *StatusTool) ParameterSchema() map[string]interface{} {
+	return map[string]interface{}{
+		"status_type": map[string]interface{}{
+			"type":        "string",
+			"enum":        []string{"cluster", "namespace", "deployments", "nodes"},
+			"description": "Type of status to retrieve (defaults to 'cluster')",
+		},
+		"namespace": map[string]interface{}{
+			"type":        "string",
+			"description": "Kubernetes namespace for namespace-specific queries (defaults to 'default')",
+		},
+	}
+}
+
 func (t *StatusTool) Execute(ctx context.Context, params map[string]any) (*tools.ToolResult, error) {
 	start := time.Now()
 

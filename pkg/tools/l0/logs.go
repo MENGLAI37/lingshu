@@ -36,6 +36,31 @@ func (t *LogsTool) Description() string {
 	return "Get logs from Kubernetes pods"
 }
 
+func (t *LogsTool) ParameterSchema() map[string]interface{} {
+	return map[string]interface{}{
+		"pod_name": map[string]interface{}{
+			"type":        "string",
+			"description": "Pod name (required)",
+		},
+		"namespace": map[string]interface{}{
+			"type":        "string",
+			"description": "Kubernetes namespace (defaults to 'default' if empty)",
+		},
+		"container_name": map[string]interface{}{
+			"type":        "string",
+			"description": "Container name (optional, defaults to first container)",
+		},
+		"tail_lines": map[string]interface{}{
+			"type":        "integer",
+			"description": "Number of lines to tail (defaults to 100)",
+		},
+		"timestamps": map[string]interface{}{
+			"type":        "boolean",
+			"description": "Include timestamps in logs",
+		},
+	}
+}
+
 func (t *LogsTool) Execute(ctx context.Context, params map[string]any) (*tools.ToolResult, error) {
 	start := time.Now()
 

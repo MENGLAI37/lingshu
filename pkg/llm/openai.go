@@ -203,6 +203,7 @@ type openAICompletionRequest struct {
 	Temperature float64           `json:"temperature,omitempty"`
 	MaxTokens   int               `json:"max_tokens,omitempty"`
 	Tools       []openAITool      `json:"tools,omitempty"`
+	ToolChoice  string            `json:"tool_choice,omitempty"`
 	Stream      bool              `json:"stream"`
 }
 
@@ -287,6 +288,9 @@ func (p *OpenAIProvider) buildRequestBody(req *CompletionRequest, stream bool) (
 			tools[i] = openAITool{Type: "function", Function: fn}
 		}
 		body.Tools = tools
+		if req.ToolChoice != "" {
+			body.ToolChoice = req.ToolChoice
+		}
 	}
 
 	return json.Marshal(body)

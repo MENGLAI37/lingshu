@@ -38,6 +38,33 @@ func (t *TopTool) Description() string {
 	return "Display resource (CPU/memory) usage of pods or nodes"
 }
 
+func (t *TopTool) ParameterSchema() map[string]interface{} {
+	return map[string]interface{}{
+		"resource_type": map[string]interface{}{
+			"type":        "string",
+			"enum":        []string{"pod", "pods", "node", "nodes"},
+			"description": "Resource type to show metrics for (defaults to 'pod')",
+		},
+		"namespace": map[string]interface{}{
+			"type":        "string",
+			"description": "Kubernetes namespace (defaults to 'default' if empty)",
+		},
+		"all_namespaces": map[string]interface{}{
+			"type":        "boolean",
+			"description": "Show metrics from all namespaces",
+		},
+		"sort_by": map[string]interface{}{
+			"type":        "string",
+			"enum":        []string{"cpu", "memory"},
+			"description": "Sort results by cpu or memory (defaults to cpu)",
+		},
+		"limit": map[string]interface{}{
+			"type":        "integer",
+			"description": "Maximum number of results to return",
+		},
+	}
+}
+
 func (t *TopTool) Execute(ctx context.Context, params map[string]any) (*tools.ToolResult, error) {
 	start := time.Now()
 

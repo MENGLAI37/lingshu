@@ -32,6 +32,36 @@ func (t *ScaleTool) Description() string {
 	return "Scale Kubernetes resources (deployments, replicasets, statefulsets, HPA)"
 }
 
+func (t *ScaleTool) ParameterSchema() map[string]interface{} {
+	return map[string]interface{}{
+		"resource_type": map[string]interface{}{
+			"type":        "string",
+			"enum":        []string{"deployment", "deployments", "deploy", "statefulset", "statefulsets", "sts", "replicaset", "replicasets", "rs", "hpa", "horizontalpodautoscaler"},
+			"description": "Kubernetes resource type to scale",
+		},
+		"name": map[string]interface{}{
+			"type":        "string",
+			"description": "Resource name (required)",
+		},
+		"namespace": map[string]interface{}{
+			"type":        "string",
+			"description": "Kubernetes namespace (defaults to 'default' if empty)",
+		},
+		"replicas": map[string]interface{}{
+			"type":        "integer",
+			"description": "Target number of replicas (required for deployment/statefulset/replicaset)",
+		},
+		"min_replicas": map[string]interface{}{
+			"type":        "integer",
+			"description": "Minimum replicas for HPA",
+		},
+		"max_replicas": map[string]interface{}{
+			"type":        "integer",
+			"description": "Maximum replicas for HPA",
+		},
+	}
+}
+
 func (t *ScaleTool) Execute(ctx context.Context, params map[string]any) (*tools.ToolResult, error) {
 	start := time.Now()
 

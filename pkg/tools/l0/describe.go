@@ -35,6 +35,24 @@ func (t *DescribeTool) Description() string {
 	return "Describe Kubernetes resources with detailed information"
 }
 
+func (t *DescribeTool) ParameterSchema() map[string]interface{} {
+	return map[string]interface{}{
+		"resource_type": map[string]interface{}{
+			"type":        "string",
+			"enum":        []string{"pod", "pods", "deployment", "deployments", "service", "services", "ingress", "ingresses", "configmap", "configmaps", "node", "nodes"},
+			"description": "Kubernetes resource type to describe",
+		},
+		"name": map[string]interface{}{
+			"type":        "string",
+			"description": "Resource name (required)",
+		},
+		"namespace": map[string]interface{}{
+			"type":        "string",
+			"description": "Kubernetes namespace (defaults to 'default' if empty, ignored for nodes)",
+		},
+	}
+}
+
 func (t *DescribeTool) Execute(ctx context.Context, params map[string]any) (*tools.ToolResult, error) {
 	start := time.Now()
 

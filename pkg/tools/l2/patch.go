@@ -33,6 +33,33 @@ func (t *PatchTool) Description() string {
 	return "Patch Kubernetes resources (update images, annotations, labels, etc.)"
 }
 
+func (t *PatchTool) ParameterSchema() map[string]interface{} {
+	return map[string]interface{}{
+		"resource_type": map[string]interface{}{
+			"type":        "string",
+			"enum":        []string{"deployment", "deployments", "deploy", "pod", "pods", "service", "services", "svc", "configmap", "configmaps", "cm"},
+			"description": "Kubernetes resource type to patch",
+		},
+		"name": map[string]interface{}{
+			"type":        "string",
+			"description": "Resource name (required)",
+		},
+		"namespace": map[string]interface{}{
+			"type":        "string",
+			"description": "Kubernetes namespace (defaults to 'default' if empty)",
+		},
+		"patch_type": map[string]interface{}{
+			"type":        "string",
+			"enum":        []string{"strategic", "json", "merge", "apply"},
+			"description": "Patch type (defaults to 'strategic')",
+		},
+		"patch_data": map[string]interface{}{
+			"type":        "string",
+			"description": "JSON or YAML patch data (required)",
+		},
+	}
+}
+
 func (t *PatchTool) Execute(ctx context.Context, params map[string]any) (*tools.ToolResult, error) {
 	start := time.Now()
 

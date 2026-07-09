@@ -30,6 +30,7 @@ type Tool interface {
 	Name() string
 	RiskLevel() ToolRiskLevel
 	Description() string
+	ParameterSchema() map[string]interface{}
 	Execute(ctx context.Context, params map[string]any) (*ToolResult, error)
 }
 

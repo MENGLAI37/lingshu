@@ -430,6 +430,15 @@ func (t *MockTool) Description() string {
 	return "mock tool for testing"
 }
 
+func (t *MockTool) ParameterSchema() map[string]interface{} {
+	return map[string]interface{}{
+		"test_param": map[string]interface{}{
+			"type":        "string",
+			"description": "A test parameter",
+		},
+	}
+}
+
 func (t *MockTool) Execute(ctx context.Context, params map[string]any) (*tools.ToolResult, error) {
 	return &tools.ToolResult{
 		Success:   true,

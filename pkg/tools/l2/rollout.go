@@ -33,6 +33,33 @@ func (t *RolloutTool) Description() string {
 	return "Manage rollouts of Kubernetes resources (status, history, undo, pause, resume)"
 }
 
+func (t *RolloutTool) ParameterSchema() map[string]interface{} {
+	return map[string]interface{}{
+		"action": map[string]interface{}{
+			"type":        "string",
+			"enum":        []string{"status", "history", "undo", "pause", "resume", "restart"},
+			"description": "Rollout action to perform (required)",
+		},
+		"resource_type": map[string]interface{}{
+			"type":        "string",
+			"enum":        []string{"deployment", "deployments", "deploy"},
+			"description": "Kubernetes resource type (defaults to deployment)",
+		},
+		"name": map[string]interface{}{
+			"type":        "string",
+			"description": "Resource name (required)",
+		},
+		"namespace": map[string]interface{}{
+			"type":        "string",
+			"description": "Kubernetes namespace (defaults to 'default' if empty)",
+		},
+		"revision": map[string]interface{}{
+			"type":        "integer",
+			"description": "Target revision for undo (optional, defaults to previous revision)",
+		},
+	}
+}
+
 func (t *RolloutTool) Execute(ctx context.Context, params map[string]any) (*tools.ToolResult, error) {
 	start := time.Now()
 
