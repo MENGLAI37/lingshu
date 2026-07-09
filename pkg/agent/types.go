@@ -68,14 +68,30 @@ type ToolExecutionResult struct {
 	ToolCallID string // Links back to the LLM tool_call ID for multi-turn protocol
 }
 
+type ConfirmationRequest struct {
+	ToolName      string
+	Arguments     map[string]any
+	Message       string
+	RiskLevel     tools.ToolRiskLevel
+	Token         string
+}
+
+type ConfirmationResponse struct {
+	Token     string
+	Confirmed bool
+}
+
+type ConfirmationHandler func(req ConfirmationRequest) bool
+
 // LoopConfig holds configuration for the agent loop.
 type LoopConfig struct {
-	MaxIterations        int           // Maximum number of loop iterations (default: 10)
-	GlobalTimeout        time.Duration // Global timeout for the entire loop (default: 5min)
-	ToolTimeout          time.Duration // Timeout for individual tool calls (default: 30s)
-	MaxTokens            int64         // Maximum token budget for context
-	EnableParallelTools  bool          // Enable parallel tool execution
-	MaxParallelTools     int           // Maximum number of parallel tool calls (default: 5)
+	MaxIterations        int               // Maximum number of loop iterations (default: 10)
+	GlobalTimeout        time.Duration     // Global timeout for the entire loop (default: 5min)
+	ToolTimeout          time.Duration     // Timeout for individual tool calls (default: 30s)
+	MaxTokens            int64             // Maximum token budget for context
+	EnableParallelTools  bool              // Enable parallel tool execution
+	MaxParallelTools     int               // Maximum number of parallel tool calls (default: 5)
+	ConfirmationHandler  ConfirmationHandler // Handler for user confirmation requests
 }
 
 // DefaultLoopConfig returns the default loop configuration.
@@ -129,15 +145,18 @@ type ToolRegistry interface {
 type SecurityGateway interface {
 	EvaluateRisk(ctx context.Context, toolName string, args map[string]any) (RiskEvaluation, error)
 	IsAllowed(ctx context.Context, evaluation RiskEvaluation) (bool, string)
+	RequiresConfirmation(ctx context.Context, evaluation RiskEvaluation) bool
+	GetConfirmationMessage(ctx context.Context, evaluation RiskEvaluation) string
 }
 
 // RiskEvaluation represents a risk assessment result.
 type RiskEvaluation struct {
-	RiskLevel     tools.ToolRiskLevel
-	Score         int // 0-100, higher = more risky
-	Reason        string
+	RiskLevel         tools.ToolRiskLevel
+	Score             int // 0-100, higher = more risky
+	Reason            string
 	AffectedResources []string
 	EnvironmentWeight int // Additional weight based on environment (prod=+2, kube-system=+3)
+	ToolRiskLevel     tools.ToolRiskLevel
 }
 
 // ContextManager manages conversation context.

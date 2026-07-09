@@ -37,12 +37,13 @@ type TUIModel struct {
 	styles       *styles.Styles
 	currentPage  Page
 
-	chatView       *components.ChatView
-	input          *components.MultiLineInput
-	statusBar      *components.StatusBar
-	commandPreview *components.CommandPreview
-	highlighted    *components.HighlightedRenderer
-	configPanel    *components.ConfigPanel
+	chatView           *components.ChatView
+	input              *components.MultiLineInput
+	statusBar          *components.StatusBar
+	commandPreview     *components.CommandPreview
+	highlighted        *components.HighlightedRenderer
+	configPanel        *components.ConfigPanel
+	confirmationModal  *components.ConfirmationModal
 
 	width       int
 	height      int
@@ -61,6 +62,11 @@ type TUIModel struct {
 	// Agent Loop integration
 	agentLoop *agent.DefaultAgentLoop
 	k8sClient *k8s.ClientManager
+
+	// Confirmation handling
+	pendingConfirmation     bool
+	pendingConfirmationReq  agent.ConfirmationRequest
+	pendingConfirmationChan chan bool
 }
 
 type AIResponseMsg struct {
@@ -89,24 +95,37 @@ type ShowHighlightMsg struct {
 	Title       string
 }
 
+type ShowConfirmationMsg struct {
+	Message   string
+	RiskLevel string
+	ToolName  string
+	Token     string
+}
+
+type ConfirmationResultMsg struct {
+	Confirmed bool
+}
+
 func NewTUIModel() *TUIModel {
 	t := theme.GetTheme(theme.ThemeDark)
 	s := styles.NewStyles(t)
 
 	m := &TUIModel{
-		theme:          t,
-		styles:         s,
-		currentPage:    PageChat,
-		chatView:       components.NewChatView(s),
-		input:          components.NewMultiLineInput(s),
-		statusBar:      components.NewStatusBar(s),
-		commandPreview: components.NewCommandPreview(s),
-		highlighted:    components.NewHighlightedRenderer(s),
-		configPanel:    components.NewConfigPanel(s),
-		cluster:        "kind-lingshu-dev",
-		namespace:      "default",
-		environment:    "development",
-		msgChan:        make(chan tea.Msg, 100),
+		theme:                t,
+		styles:               s,
+		currentPage:          PageChat,
+		chatView:             components.NewChatView(s),
+		input:                components.NewMultiLineInput(s),
+		statusBar:            components.NewStatusBar(s),
+		commandPreview:       components.NewCommandPreview(s),
+		highlighted:          components.NewHighlightedRenderer(s),
+		configPanel:          components.NewConfigPanel(s),
+		confirmationModal:    components.NewConfirmationModal(s),
+		cluster:              "kind-lingshu-dev",
+		namespace:            "default",
+		environment:          "development",
+		msgChan:              make(chan tea.Msg, 100),
+		pendingConfirmationChan: make(chan bool, 1),
 	}
 
 	m.initAgentLoop()
@@ -173,6 +192,17 @@ func (m *TUIModel) initAgentLoop() {
 
 	// Initialize Agent Loop
 	agentLoopConfig := agent.DefaultLoopConfig()
+	agentLoopConfig.ConfirmationHandler = func(req agent.ConfirmationRequest) bool {
+		m.pendingConfirmationReq = req
+		m.pendingConfirmation = true
+		m.SendMessage(ShowConfirmationMsg{
+			Message:   req.Message,
+			RiskLevel: string(req.RiskLevel),
+			ToolName:  req.ToolName,
+			Token:     req.Token,
+		})
+		return <-m.pendingConfirmationChan
+	}
 	m.agentLoop = agent.NewDefaultAgentLoop(
 		agentLoopConfig,
 		llmRouter,
@@ -217,14 +247,38 @@ func (a *agentSecurityGatewayAdapter) EvaluateRisk(ctx context.Context, toolName
 		return agent.RiskEvaluation{}, err
 	}
 
-	// Convert security.RiskEvaluation to agent.RiskEvaluation
 	return agent.RiskEvaluation{
 		RiskLevel:         tools.ToolRiskLevel(eval.RiskLevel),
 		Score:             eval.Score,
 		Reason:            eval.Reason,
 		AffectedResources: eval.AffectedResources,
 		EnvironmentWeight: eval.EnvironmentWeight,
+		ToolRiskLevel:     tools.ToolRiskLevel(eval.ToolRiskLevel),
 	}, nil
+}
+
+func (a *agentSecurityGatewayAdapter) RequiresConfirmation(ctx context.Context, evaluation agent.RiskEvaluation) bool {
+	secEval := security.RiskEvaluation{
+		RiskLevel:         security.RiskLevel(evaluation.RiskLevel),
+		Score:             evaluation.Score,
+		Reason:            evaluation.Reason,
+		AffectedResources: evaluation.AffectedResources,
+		EnvironmentWeight: evaluation.EnvironmentWeight,
+		ToolRiskLevel:     tools.ToolRiskLevel(evaluation.ToolRiskLevel),
+	}
+	return a.gateway.RequiresConfirmation(ctx, secEval)
+}
+
+func (a *agentSecurityGatewayAdapter) GetConfirmationMessage(ctx context.Context, evaluation agent.RiskEvaluation) string {
+	secEval := security.RiskEvaluation{
+		RiskLevel:         security.RiskLevel(evaluation.RiskLevel),
+		Score:             evaluation.Score,
+		Reason:            evaluation.Reason,
+		AffectedResources: evaluation.AffectedResources,
+		EnvironmentWeight: evaluation.EnvironmentWeight,
+		ToolRiskLevel:     tools.ToolRiskLevel(evaluation.ToolRiskLevel),
+	}
+	return a.gateway.GetConfirmationMessage(ctx, secEval)
 }
 
 func (a *agentSecurityGatewayAdapter) IsAllowed(ctx context.Context, evaluation agent.RiskEvaluation) (bool, string) {
@@ -546,6 +600,19 @@ func (m *TUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.highlighted.Show()
 		return m, nil
 
+	case ShowConfirmationMsg:
+		m.confirmationModal.Show(msg.Message, msg.RiskLevel, msg.ToolName, msg.Token)
+		m.confirmationModal.SetSize(m.width, m.height)
+		return m, nil
+
+	case ConfirmationResultMsg:
+		if m.pendingConfirmation && m.pendingConfirmationChan != nil {
+			m.pendingConfirmationChan <- msg.Confirmed
+			m.pendingConfirmation = false
+		}
+		m.confirmationModal.Hide()
+		return m, nil
+
 	case components.ConfigSavedMsg:
 		m.configPanel.Hide()
 		m.reinitAgentLoop()
@@ -554,6 +621,26 @@ func (m *TUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case components.ConfigCancelledMsg:
 		m.configPanel.Hide()
 		return m, nil
+	}
+
+	if m.confirmationModal.IsVisible() {
+		var newModal *components.ConfirmationModal
+		newModal, cmd = m.confirmationModal.Update(msg)
+		m.confirmationModal = newModal
+		cmds = append(cmds, cmd)
+
+		if msg, ok := msg.(tea.KeyMsg); ok {
+			if msg.Type == tea.KeyEnter {
+				if m.confirmationModal.GetToken() == m.pendingConfirmationReq.Token {
+					m.SendMessage(ConfirmationResultMsg{Confirmed: m.confirmationModal.Confirm()})
+				}
+			} else if msg.Type == tea.KeyEsc {
+				if m.confirmationModal.GetToken() == m.pendingConfirmationReq.Token {
+					m.SendMessage(ConfirmationResultMsg{Confirmed: false})
+				}
+			}
+		}
+		return m, tea.Batch(cmds...)
 	}
 
 	if m.commandPreview.Visible() {
@@ -599,6 +686,10 @@ func (m *TUIModel) View() string {
 
 	if m.showHelp {
 		return m.overlayHelp(mainContent)
+	}
+
+	if m.confirmationModal.IsVisible() {
+		return m.overlayCenter(mainContent, m.confirmationModal.View())
 	}
 
 	if m.commandPreview.Visible() {
