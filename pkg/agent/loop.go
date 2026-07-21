@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/lingshu/lingshu/pkg/audit"
+	"github.com/lingshu/lingshu/pkg/gitops"
 	"github.com/lingshu/lingshu/pkg/llm"
 	"github.com/lingshu/lingshu/pkg/logger"
 	"github.com/lingshu/lingshu/pkg/tools"
@@ -30,6 +31,7 @@ type DefaultAgentLoop struct {
 	timeoutChecker  *TimeoutChecker
 	circuitBreaker  *CircuitBreaker
 	auditMgr        *audit.Manager
+	gitopsDetector  *gitops.Detector
 	mu              sync.Mutex //nolint:unused
 }
 
@@ -65,6 +67,11 @@ func NewDefaultAgentLoop(
 // SetAuditManager wires the audit manager for tool call logging.
 func (al *DefaultAgentLoop) SetAuditManager(mgr *audit.Manager) {
 	al.auditMgr = mgr
+}
+
+// SetGitOpsDetector wires the GitOps detector for conflict warnings.
+func (al *DefaultAgentLoop) SetGitOpsDetector(detector *gitops.Detector) {
+	al.gitopsDetector = detector
 }
 
 // Execute runs the agent loop with the given input.
@@ -255,6 +262,33 @@ func (al *DefaultAgentLoop) ExecuteWithTools(ctx context.Context, input string, 
 			al.contextManager.AddToolResult(execResult.ToolName, resultStr, execResult.ToolCallID)
 		}
 
+		// Record iteration for dead-loop detection
+		toolNames := make([]string, len(execResults))
+		for i, r := range execResults {
+			toolNames[i] = r.ToolName
+		}
+		al.timeoutChecker.RecordIteration(IterationRecord{
+			IterationNumber: state.iterationCount,
+			StartTime:       time.Now(),
+			EndTime:         time.Now(),
+			Phase:           PhaseAct,
+			ToolCalls:       toolNames,
+			ResultSummary:   "iteration",
+		})
+
+		// Dead-loop detection every 3 iterations
+		if state.iterationCount > 0 && state.iterationCount%3 == 0 {
+			analysis := al.timeoutChecker.DetectDeadLoop()
+			if analysis.HasDeadLoop {
+				logger.Warn("Dead loop detected",
+					"iteration", state.iterationCount,
+					"suggestion", analysis.Suggestion,
+				)
+				al.emitEvent(handler, "thinking", state.state, state.currentPhase,
+					"DEAD LOOP WARNING: "+analysis.Suggestion)
+			}
+		}
+
 		// Increment iteration count
 		state.iterationCount++
 		result.TotalIterations = state.iterationCount
@@ -333,6 +367,18 @@ func (al *DefaultAgentLoop) executeTools(ctx context.Context, toolCalls []Parsed
 			if al.securityGateway.RequiresConfirmation(ctx, eval) {
 				msg := al.securityGateway.GetConfirmationMessage(ctx, eval)
 				impactSummary := buildImpactSummary(eval)
+			// GitOps conflict detection for L2+ operations
+			if al.gitopsDetector != nil && eval.RiskLevel != tools.RiskLevelL0 && eval.RiskLevel != tools.RiskLevelL1 {
+				ns, _ := tc.Arguments["namespace"].(string)
+				name, _ := tc.Arguments["name"].(string)
+				rt, _ := tc.Arguments["resource_type"].(string)
+				if ns != "" && name != "" && rt != "" {
+					if own, err := al.gitopsDetector.DetectOwnership(ctx, ns, rt, name); err == nil && own.IsManaged {
+						msg = msg + "\n\nGITOPS CONFLICT WARNING:\n" + own.GetWarningMessage()
+					}
+				}
+			}
+
 				req := ConfirmationRequest{
 					ToolName:          tc.Name,
 					Arguments:         tc.Arguments,

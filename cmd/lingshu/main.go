@@ -166,6 +166,35 @@ func runNoTUI(query string, dryRun, yesMode, pipeMode bool) int {
 			for _, t := range toolList {
 				fmt.Printf("    - %s [%s]: %s\n", t.Name(), t.RiskLevel(), t.Description())
 			}
+
+				// RBAC self-check
+				if k8sClient != nil {
+					fmt.Println()
+					fmt.Println("  RBAC Permission Check:")
+					toolNames := make([]string, len(toolList))
+					for i, t := range toolList {
+						toolNames[i] = t.Name()
+					}
+					permResults, permErr := k8sClient.CheckToolPermissions(context.Background(), toolNames)
+					if permErr != nil {
+						fmt.Printf("  RBAC check failed: %v\n", permErr)
+					} else {
+						missing := 0
+						for name, ok := range permResults {
+							if !ok {
+								if p, found := k8s.ToolPermissionMap[name]; found {
+									fmt.Printf("  %s: MISSING %s on %s\n", name, p.Verb, p.Resource)
+								}
+								missing++
+							}
+						}
+						if missing == 0 {
+							fmt.Println("  All tool permissions verified")
+						} else {
+							fmt.Printf("  %d tool(s) lack permissions\n", missing)
+						}
+					}
+				}
 		}
 	} else {
 		fmt.Println("  ⚠ Skipping K8s tools (no cluster access)")

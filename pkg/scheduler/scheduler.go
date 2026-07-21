@@ -392,7 +392,7 @@ func parseCronField(field string, min, max int) ([]int, error) {
 		if value < min || value > max {
 			return nil, fmt.Errorf("value out of range")
 		}
-		return []int{value}, nil
+		return []int{value		}, nil
 	}
 
 	return nil, fmt.Errorf("invalid field format")
@@ -455,9 +455,10 @@ func (t *SchedulerToolImpl) Execute(ctx context.Context, params map[string]any) 
 	case "list":
 		jobs := t.scheduler.ListJobs()
 		return &tools.ToolResult{
+			Success: true,
 			Data:    jobs,
 			Message: fmt.Sprintf("Found %d scheduled jobs", len(jobs)),
-		}, nil
+				}, nil
 	case "add":
 		jobData, ok := params["job"].(map[string]interface{})
 		if !ok {
@@ -492,9 +493,10 @@ func (t *SchedulerToolImpl) Execute(ctx context.Context, params map[string]any) 
 			return nil, err
 		}
 		return &tools.ToolResult{
+			Success: true,
 			Data:    job,
 			Message: fmt.Sprintf("Job %s added successfully", job.ID),
-		}, nil
+				}, nil
 	case "remove":
 		jobID, ok := params["job_id"].(string)
 		if !ok {
@@ -505,8 +507,9 @@ func (t *SchedulerToolImpl) Execute(ctx context.Context, params map[string]any) 
 			return nil, err
 		}
 		return &tools.ToolResult{
+			Success: true,
 			Message: fmt.Sprintf("Job %s removed", jobID),
-		}, nil
+				}, nil
 	case "run_now":
 		jobID, ok := params["job_id"].(string)
 		if !ok {
@@ -517,9 +520,10 @@ func (t *SchedulerToolImpl) Execute(ctx context.Context, params map[string]any) 
 			return nil, err
 		}
 		return &tools.ToolResult{
+			Success: true,
 			Data:    exec,
 			Message: fmt.Sprintf("Job %s executed. Status: %s", jobID, exec.Status),
-		}, nil
+				}, nil
 	case "pause":
 		jobID, ok := params["job_id"].(string)
 		if !ok {
@@ -530,8 +534,9 @@ func (t *SchedulerToolImpl) Execute(ctx context.Context, params map[string]any) 
 			return nil, err
 		}
 		return &tools.ToolResult{
+			Success: true,
 			Message: fmt.Sprintf("Job %s paused", jobID),
-		}, nil
+				}, nil
 	case "resume":
 		jobID, ok := params["job_id"].(string)
 		if !ok {
@@ -542,8 +547,9 @@ func (t *SchedulerToolImpl) Execute(ctx context.Context, params map[string]any) 
 			return nil, err
 		}
 		return &tools.ToolResult{
+			Success: true,
 			Message: fmt.Sprintf("Job %s resumed", jobID),
-		}, nil
+				}, nil
 	default:
 		return nil, fmt.Errorf("unknown action %s", action)
 	}
