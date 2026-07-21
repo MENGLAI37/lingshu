@@ -9,8 +9,6 @@ import (
 	"sync"
 	"time"
 
-	"golang.org/x/sys/unix"
-
 	"github.com/lingshu/lingshu/pkg/logger"
 )
 
@@ -106,7 +104,7 @@ func (fb *FileFallback) openLatestFile() error {
 	}
 
 	// Use O_NOFOLLOW to prevent following symlinks
-	f, err := os.OpenFile(latestFile, os.O_APPEND|os.O_WRONLY|unix.O_NOFOLLOW, 0600)
+	f, err := os.OpenFile(latestFile, os.O_APPEND|os.O_WRONLY|oNoFollow, 0600)
 	if err != nil {
 		return fmt.Errorf("open latest file: %w", err)
 	}
@@ -138,7 +136,7 @@ func (fb *FileFallback) createNewFile() error {
 	}
 
 	// Use O_NOFOLLOW to prevent following symlinks, O_EXCL to prevent overwriting
-	f, err := os.OpenFile(fullPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND|os.O_EXCL|unix.O_NOFOLLOW, 0600)
+	f, err := os.OpenFile(fullPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND|os.O_EXCL|oNoFollow, 0600)
 	if err != nil {
 		return fmt.Errorf("create fallback file: %w", err)
 	}

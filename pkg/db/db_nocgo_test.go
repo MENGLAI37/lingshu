@@ -23,7 +23,7 @@ func TestPostgresConnection(t *testing.T) {
 	if err != nil {
 		t.Skip("sqlmock not available, skipping")
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	mock.ExpectPing()
 
@@ -38,7 +38,7 @@ func TestDatabaseWrapper(t *testing.T) {
 	if err != nil {
 		t.Skip("sqlmock not available, skipping")
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	sqlxDB := sqlx.NewDb(db, "postgres")
 
@@ -58,7 +58,7 @@ func TestInitWithMock(t *testing.T) {
 	if err != nil {
 		t.Skip("sqlmock not available, skipping")
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	mock.ExpectPing()
 
@@ -81,7 +81,7 @@ func TestDatabaseFallbackMode(t *testing.T) {
 	if err != nil {
 		t.Skip("sqlmock not available, skipping")
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	sqlxDB := sqlx.NewDb(db, "postgres")
 
@@ -112,7 +112,7 @@ func TestDatabasePrimaryMode(t *testing.T) {
 	if err != nil {
 		t.Skip("sqlmock not available, skipping")
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	sqlxDB := sqlx.NewDb(db, "postgres")
 
