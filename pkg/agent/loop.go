@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/lingshu/lingshu/pkg/llm"
+	"github.com/lingshu/lingshu/pkg/logger"
 	"github.com/lingshu/lingshu/pkg/tools"
 )
 
@@ -26,6 +27,7 @@ type DefaultAgentLoop struct {
 	parser          *ToolCallParser
 	parallelExec    *ParallelExecutor
 	timeoutChecker  *TimeoutChecker
+	circuitBreaker  *CircuitBreaker
 	mu              sync.Mutex //nolint:unused
 }
 
@@ -54,6 +56,7 @@ func NewDefaultAgentLoop(
 		parser:          NewToolCallParser(),
 		parallelExec:    NewParallelExecutor(config.MaxParallelTools, config.ToolTimeout),
 		timeoutChecker:  NewTimeoutChecker(config.GlobalTimeout, config.MaxIterations),
+		circuitBreaker:  NewCircuitBreaker(config.MaxL2Operations, config.MaxConsecutiveWrite),
 	}
 }
 
@@ -64,6 +67,16 @@ func (al *DefaultAgentLoop) Execute(ctx context.Context, input string, handler L
 
 // ExecuteWithTools runs the agent loop with optional additional tools.
 func (al *DefaultAgentLoop) ExecuteWithTools(ctx context.Context, input string, extraTools []tools.Tool, handler LoopEventHandler) (*LoopResult, error) {
+	// Panic recovery: catch panics and build partial result
+	var panicErr error
+	defer func() {
+		if r := recover(); r != nil {
+			panicErr = fmt.Errorf("agent loop panic recovered: %v", r)
+			logger.Error("Agent loop panic", "error", panicErr, "input", input)
+			al.emitEvent(handler, "error", StateError, PhaseThink, panicErr)
+		}
+	}()
+
 	// Reset context for new execution
 	al.contextManager.Reset()
 
@@ -241,6 +254,12 @@ func (al *DefaultAgentLoop) ExecuteWithTools(ctx context.Context, input string, 
 	}
 
 	result.TotalDuration = time.Since(state.startTime)
+
+	if panicErr != nil {
+		result.State = StateError
+		result.Error = panicErr
+		return result, panicErr
+	}
 	return result, nil
 }
 
@@ -258,6 +277,27 @@ func (al *DefaultAgentLoop) executeTools(ctx context.Context, toolCalls []Parsed
 	results := []ToolExecutionResult{}
 
 	for _, tc := range toolCalls {
+		// Circuit breaker check: prevent runaway L2+ operations
+		if al.circuitBreaker != nil {
+			tool, _ := al.toolRegistry.GetTool(tc.Name)
+			isWrite := tool != nil && tool.RiskLevel() != tools.RiskLevelL0
+			isL2Plus := tool != nil && (tool.RiskLevel() == tools.RiskLevelL2 ||
+				tool.RiskLevel() == tools.RiskLevelL3 ||
+				tool.RiskLevel() == tools.RiskLevelL4)
+
+			if err := al.circuitBreaker.Allow(isWrite, isL2Plus); err != nil {
+				results = append(results, ToolExecutionResult{
+					ToolName:   tc.Name,
+					Arguments:  tc.Arguments,
+					ToolCallID: tc.ToolCallID,
+					Error:      fmt.Errorf("circuit breaker: %w", err),
+					Timestamp:  time.Now(),
+				})
+				al.emitEvent(handler, "error", state.state, state.currentPhase, err)
+				continue
+			}
+		}
+
 		if al.securityGateway != nil {
 			eval, err := al.securityGateway.EvaluateRisk(ctx, tc.Name, tc.Arguments)
 			if err != nil {
@@ -285,12 +325,15 @@ func (al *DefaultAgentLoop) executeTools(ctx context.Context, toolCalls []Parsed
 
 			if al.securityGateway.RequiresConfirmation(ctx, eval) {
 				msg := al.securityGateway.GetConfirmationMessage(ctx, eval)
+				impactSummary := buildImpactSummary(eval)
 				req := ConfirmationRequest{
-					ToolName:  tc.Name,
-					Arguments: tc.Arguments,
-					Message:   msg,
-					RiskLevel: eval.ToolRiskLevel,
-					Token:     tc.ToolCallID,
+					ToolName:          tc.Name,
+					Arguments:         tc.Arguments,
+					Message:           msg,
+					RiskLevel:         eval.ToolRiskLevel,
+					Token:             tc.ToolCallID,
+					AffectedResources: eval.AffectedResources,
+					ImpactSummary:     impactSummary,
 				}
 
 				al.emitEvent(handler, "confirmation_request", state.state, state.currentPhase, req)
@@ -343,6 +386,24 @@ func (al *DefaultAgentLoop) executeSingleTool(ctx context.Context, tc ParsedTool
 			Error:      fmt.Errorf("tool not found: %w", err),
 			Duration:   time.Since(start),
 			Timestamp:  start,
+		}
+	}
+
+	// Dry-run: skip L1+ write operations, return preview result
+	if al.config.DryRun && tool.RiskLevel() != tools.RiskLevelL0 {
+		return ToolExecutionResult{
+			ToolName:   tc.Name,
+			Arguments:  tc.Arguments,
+			ToolCallID: tc.ToolCallID,
+			Result: &tools.ToolResult{
+				Success:   true,
+				Message:   fmt.Sprintf("[DRY RUN] Would execute %s with args %v (risk: %s)", tc.Name, tc.Arguments, tool.RiskLevel()),
+				Timestamp: start,
+				ToolName:  tc.Name,
+				RiskLevel: tool.RiskLevel(),
+			},
+			Duration:  time.Since(start),
+			Timestamp: start,
 		}
 	}
 
@@ -516,6 +577,24 @@ func getRequiredParameters(tool tools.Tool) []string {
 	default:
 		return []string{}
 	}
+}
+
+// buildImpactSummary builds a human-readable impact summary from a risk evaluation.
+func buildImpactSummary(eval RiskEvaluation) string {
+	summary := "Risk Level: " + string(eval.RiskLevel)
+	if eval.Score > 0 {
+		summary += fmt.Sprintf(" (Score: %d)", eval.Score)
+	}
+	if eval.Reason != "" {
+		summary += "\nReason: " + eval.Reason
+	}
+	if len(eval.AffectedResources) > 0 {
+		summary += "\nAffected Resources:"
+		for _, r := range eval.AffectedResources {
+			summary += "\n  - " + r
+		}
+	}
+	return summary
 }
 
 // Agent system prompt template

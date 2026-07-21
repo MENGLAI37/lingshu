@@ -69,11 +69,21 @@ type ToolExecutionResult struct {
 }
 
 type ConfirmationRequest struct {
-	ToolName      string
-	Arguments     map[string]any
-	Message       string
-	RiskLevel     tools.ToolRiskLevel
-	Token         string
+	ToolName          string
+	Arguments         map[string]any
+	Message           string
+	RiskLevel         tools.ToolRiskLevel
+	Token             string
+	AffectedResources []string // Resources that will be impacted (e.g. "default/deployment/nginx")
+	ImpactSummary     string   // Human-readable impact analysis summary
+	Preflight         []PreflightCheckResult
+}
+
+// PreflightCheckResult represents a pre-execution check result.
+type PreflightCheckResult struct {
+	Name   string
+	Passed bool
+	Detail string
 }
 
 type ConfirmationResponse struct {
@@ -92,6 +102,9 @@ type LoopConfig struct {
 	EnableParallelTools  bool              // Enable parallel tool execution
 	MaxParallelTools     int               // Maximum number of parallel tool calls (default: 5)
 	ConfirmationHandler  ConfirmationHandler // Handler for user confirmation requests
+	DryRun               bool              // If true, skip L1+ write operations (preview mode)
+	MaxL2Operations      int               // Maximum L2+ operations per session (default: 5, 0=unlimited)
+	MaxConsecutiveWrite  int               // Max consecutive write ops before forcing L0 check (default: 3)
 }
 
 // DefaultLoopConfig returns the default loop configuration.
@@ -103,6 +116,8 @@ func DefaultLoopConfig() LoopConfig {
 		MaxTokens:           100000,
 		EnableParallelTools: true,
 		MaxParallelTools:    5,
+		MaxL2Operations:     5,
+		MaxConsecutiveWrite: 3,
 	}
 }
 

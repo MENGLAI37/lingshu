@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"sync"
 
+	authorizationv1 "k8s.io/api/authorization/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
@@ -239,4 +241,74 @@ func (cm *ClientManager) Reload() error {
 	cm.currentContext = ""
 
 	return cm.loadContexts()
+}
+
+// ===========================================================================
+// RBAC Self-Check
+// ===========================================================================
+
+// Permission represents a K8s permission.
+type Permission struct {
+	Verb     string
+	Resource string
+	APIGroup string
+}
+
+// CanI checks if the current SA/user can perform a verb on a resource.
+func (cm *ClientManager) CanI(ctx context.Context, verb, resource, namespace, apiGroup string) (bool, error) {
+	clientset, err := cm.GetClientSet(ctx, "")
+	if err != nil {
+		return false, fmt.Errorf("get clientset: %w", err)
+	}
+
+	ssar := &authorizationv1.SelfSubjectAccessReview{
+		Spec: authorizationv1.SelfSubjectAccessReviewSpec{
+			ResourceAttributes: &authorizationv1.ResourceAttributes{
+				Namespace: namespace,
+				Verb:      verb,
+				Resource:  resource,
+				Group:     apiGroup,
+			},
+		},
+	}
+
+	result, err := clientset.AuthorizationV1().SelfSubjectAccessReviews().Create(ctx, ssar, metav1.CreateOptions{})
+	if err != nil {
+		return false, fmt.Errorf("SelfSubjectAccessReview failed: %w", err)
+	}
+
+	return result.Status.Allowed, nil
+}
+
+// ToolPermissionMap maps tool names to required K8s permissions.
+var ToolPermissionMap = map[string]Permission{
+	"k8s_get":       {Verb: "get", Resource: "pods"},
+	"k8s_describe":  {Verb: "get", Resource: "pods"},
+	"k8s_logs":      {Verb: "get", Resource: "pods/log"},
+	"k8s_events":    {Verb: "get", Resource: "events"},
+	"k8s_status":    {Verb: "get", Resource: "pods"},
+	"k8s_top":       {Verb: "get", Resource: "pods"},
+	"k8s_scale":     {Verb: "update", Resource: "deployments/scale", APIGroup: "apps"},
+	"k8s_restart":   {Verb: "patch", Resource: "deployments", APIGroup: "apps"},
+	"k8s_rollout":   {Verb: "patch", Resource: "deployments", APIGroup: "apps"},
+	"k8s_patch":     {Verb: "patch", Resource: "deployments", APIGroup: "apps"},
+}
+
+// CheckToolPermissions checks permissions for all registered tools.
+func (cm *ClientManager) CheckToolPermissions(ctx context.Context, toolNames []string) (map[string]bool, error) {
+	results := make(map[string]bool)
+	for _, name := range toolNames {
+		perm, ok := ToolPermissionMap[name]
+		if !ok {
+			results[name] = true // Unknown tools assumed allowed
+			continue
+		}
+		allowed, err := cm.CanI(ctx, perm.Verb, perm.Resource, "default", perm.APIGroup)
+		if err != nil {
+			results[name] = false
+			continue
+		}
+		results[name] = allowed
+	}
+	return results, nil
 }

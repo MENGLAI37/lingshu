@@ -239,6 +239,20 @@ func getConfigPath() (string, error) {
 	return path, nil
 }
 
+// IsFirstRun returns true if no LLM config exists yet (no config file, no env vars).
+func IsFirstRun() bool {
+	path, err := getConfigPath()
+	if err != nil {
+		return false
+	}
+	_, err = os.Stat(path)
+	configExists := err == nil
+
+	hasEnvVars := os.Getenv("OPENAI_API_KEY") != "" || os.Getenv("DEEPSEEK_API_KEY") != ""
+
+	return !configExists && !hasEnvVars
+}
+
 func loadFromEnv() *LLMConfig {
 	apiKey := os.Getenv("OPENAI_API_KEY")
 	baseURL := os.Getenv("OPENAI_BASE_URL")

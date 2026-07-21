@@ -6,7 +6,9 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/google/uuid"
@@ -29,6 +31,7 @@ var Version = "v0.1.0"
 func main() {
 	noTUI := flag.Bool("no-tui", false, "Headless mode: ask a question and get an answer")
 	autoDemo := flag.Bool("auto-demo", false, "Autonomous ops demo: simulated alert triggers auto diagnosis")
+	dryRun := flag.Bool("dry-run", false, "Preview mode: diagnose + plan but skip all write operations (L1+)")
 	showVersion := flag.Bool("version", false, "Show version information")
 	flag.Parse()
 
@@ -38,13 +41,13 @@ func main() {
 	}
 
 	if *autoDemo {
-		runAutoDemo()
+		runAutoDemo(*dryRun)
 		return
 	}
 
 	if *noTUI {
 		query := strings.Join(flag.Args(), " ")
-		runNoTUI(query)
+		runNoTUI(query, *dryRun)
 		return
 	}
 
@@ -69,7 +72,7 @@ func runTUI() error {
 
 // runNoTUI runs the agent loop in headless mode.
 // If query is empty, it prints usage info.
-func runNoTUI(query string) {
+func runNoTUI(query string, dryRun bool) {
 	fmt.Println("╔══════════════════════════════════════════════╗")
 	fmt.Println("║  灵枢 (LingShu) - AI-Native SRE Agent       ║")
 	fmt.Println("║  Version: " + Version + "                              ║")
@@ -95,7 +98,25 @@ func runNoTUI(query string) {
 	providerCfg := config.GetCurrentProviderConfig()
 	if providerCfg == nil {
 		fmt.Println("  ✗ No LLM provider configured.")
-		fmt.Println("  Set up ~/.lingshu/config.yaml or set OPENAI_API_KEY env var.")
+
+		// First-run onboarding
+		if config.IsFirstRun() {
+			fmt.Println()
+			fmt.Println("  ╔══════════════════════════════════════════════════╗")
+			fmt.Println("  ║  🚀 欢迎使用灵枢 (LingShu)!                      ║")
+			fmt.Println("  ║                                                  ║")
+			fmt.Println("  ║  快速配置:                                       ║")
+			fmt.Println("  ║  1. 设置 LLM API Key (任选其一):                  ║")
+			fmt.Println("  ║     export OPENAI_API_KEY=\"sk-...\"                ║")
+			fmt.Println("  ║     export DEEPSEEK_API_KEY=\"sk-...\"              ║")
+			fmt.Println("  ║  2. 确保 kubeconfig 可用 (kubectl cluster-info)    ║")
+			fmt.Println("  ║  3. 重新运行: lingshu --no-tui \"你的问题\"         ║")
+			fmt.Println("  ║                                                  ║")
+			fmt.Println("  ║  TUI 交互模式: lingshu (推荐)                     ║")
+			fmt.Println("  ╚══════════════════════════════════════════════════╝")
+		} else {
+			fmt.Println("  💡 设置 ~/.lingshu/config.yaml 或设置 OPENAI_API_KEY 环境变量")
+		}
 		os.Exit(1)
 	}
 	fmt.Printf("  ✓ Provider: %s (model: %s)\n", providerCfg.Name, providerCfg.Model)
@@ -144,6 +165,7 @@ func runNoTUI(query string) {
 	fmt.Println("  ✓ Security gateway ready (L0-L4)")
 
 	loopCfg := agent.DefaultLoopConfig()
+	loopCfg.DryRun = dryRun
 	loopCfg.ConfirmationHandler = func(req agent.ConfirmationRequest) bool {
 		fmt.Printf("\n  ⚠ CONFIRMATION REQUIRED [%s]: %s\n", req.RiskLevel, req.Message)
 		fmt.Print("  Confirm? (y/N): ")
@@ -283,7 +305,7 @@ func (a *noTUISecurityGateway) IsAllowed(ctx context.Context, evaluation agent.R
 // 5. 执行修复
 // 6. 全程审计留痕
 
-func runAutoDemo() {
+func runAutoDemo(dryRun bool) {
 	fmt.Println("╔══════════════════════════════════════════════════════╗")
 	fmt.Println("║  灵枢 (LingShu) - 自主运维演示                      ║")
 	fmt.Println("║  Version: " + Version + "                                     ║")
@@ -344,6 +366,7 @@ func runAutoDemo() {
 
 	// Agent Loop
 	loopCfg := agent.DefaultLoopConfig()
+	loopCfg.DryRun = dryRun
 	pendingConfirm := make(chan bool, 1)
 	loopCfg.ConfirmationHandler = func(req agent.ConfirmationRequest) bool {
 		fmt.Println()
@@ -366,6 +389,15 @@ func runAutoDemo() {
 	// Autonomous Engine
 	autoEngine := agent.NewAutonomousEngine(agentLoop, secGateway, nil)
 	fmt.Println("  ✓ 自主引擎已就绪")
+
+	// Setup graceful shutdown
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	go func() {
+		<-sigCh
+		fmt.Println("\n\n  🛑 收到终止信号，正在安全退出...")
+		os.Exit(0)
+	}()
 	fmt.Println()
 
 	// ---- Phase 1: 模拟告警 ----
