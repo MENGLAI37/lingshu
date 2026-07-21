@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/lingshu/lingshu/pkg/audit"
 	"github.com/lingshu/lingshu/pkg/llm"
 	"github.com/lingshu/lingshu/pkg/logger"
 	"github.com/lingshu/lingshu/pkg/tools"
@@ -28,6 +29,7 @@ type DefaultAgentLoop struct {
 	parallelExec    *ParallelExecutor
 	timeoutChecker  *TimeoutChecker
 	circuitBreaker  *CircuitBreaker
+	auditMgr        *audit.Manager
 	mu              sync.Mutex //nolint:unused
 }
 
@@ -58,6 +60,11 @@ func NewDefaultAgentLoop(
 		timeoutChecker:  NewTimeoutChecker(config.GlobalTimeout, config.MaxIterations),
 		circuitBreaker:  NewCircuitBreaker(config.MaxL2Operations, config.MaxConsecutiveWrite),
 	}
+}
+
+// SetAuditManager wires the audit manager for tool call logging.
+func (al *DefaultAgentLoop) SetAuditManager(mgr *audit.Manager) {
+	al.auditMgr = mgr
 }
 
 // Execute runs the agent loop with the given input.
@@ -413,6 +420,28 @@ func (al *DefaultAgentLoop) executeSingleTool(ctx context.Context, tc ParsedTool
 
 	result, err := tool.Execute(toolCtx, tc.Arguments)
 
+	// Audit log: record every tool execution (L1+)
+	if al.auditMgr != nil && tool.RiskLevel() != tools.RiskLevelL0 {
+		namespace, _ := tc.Arguments["namespace"].(string)
+		toolName := tc.Name
+		riskLevel := audit.RiskLevel(string(tool.RiskLevel()))
+		auditResult := map[string]interface{}{"success": err == nil}
+		if result != nil {
+			auditResult["message"] = result.Message
+		}
+		if err != nil {
+			auditResult["error"] = err.Error()
+		}
+		_ = al.auditMgr.Log(ctx, &audit.CreateAuditEventRequest{
+			Action:    audit.ActionToolCall,
+			ToolName:  &toolName,
+			RiskLevel: riskLevel,
+			Cluster:   getCtxString(ctx, "cluster"),
+			Namespace: namespace,
+			Result:    auditResult,
+		})
+	}
+
 	return ToolExecutionResult{
 		ToolName:   tc.Name,
 		Arguments:  tc.Arguments,
@@ -580,6 +609,16 @@ func getRequiredParameters(tool tools.Tool) []string {
 }
 
 // buildImpactSummary builds a human-readable impact summary from a risk evaluation.
+// getCtxString extracts a string value from context.
+func getCtxString(ctx context.Context, key string) string {
+	if v := ctx.Value(key); v != nil {
+		if s, ok := v.(string); ok {
+			return s
+		}
+	}
+	return ""
+}
+
 func buildImpactSummary(eval RiskEvaluation) string {
 	summary := "Risk Level: " + string(eval.RiskLevel)
 	if eval.Score > 0 {

@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"regexp"
 	"strings"
 	"time"
 
@@ -33,7 +34,7 @@ func (t *LogsTool) RiskLevel() tools.ToolRiskLevel {
 }
 
 func (t *LogsTool) Description() string {
-	return "Get logs from Kubernetes pods"
+	return "Get logs from Kubernetes pods (supports tail -f streaming with stop pattern)"
 }
 
 func (t *LogsTool) ParameterSchema() map[string]interface{} {
@@ -58,6 +59,18 @@ func (t *LogsTool) ParameterSchema() map[string]interface{} {
 			"type":        "boolean",
 			"description": "Include timestamps in logs",
 		},
+		"follow": map[string]interface{}{
+			"type":        "boolean",
+			"description": "Follow log output (like tail -f). Stops on stop_pattern or after duration.",
+		},
+		"stop_pattern": map[string]interface{}{
+			"type":        "string",
+			"description": "Regex pattern to stop following logs (optional)",
+		},
+		"duration": map[string]interface{}{
+			"type":        "string",
+			"description": "Max follow duration (e.g., '30s', '1m'). Default: 10s.",
+		},
 	}
 }
 
@@ -74,6 +87,9 @@ func (t *LogsTool) Execute(ctx context.Context, params map[string]any) (*tools.T
 	}
 
 	timestamps, _ := params["timestamps"].(bool)
+	follow, _ := params["follow"].(bool)
+	stopPattern, _ := params["stop_pattern"].(string)
+	durationStr, _ := params["duration"].(string)
 
 	if podName == "" {
 		return &tools.ToolResult{
@@ -84,6 +100,11 @@ func (t *LogsTool) Execute(ctx context.Context, params map[string]any) (*tools.T
 			ToolName:  t.Name(),
 			RiskLevel: t.RiskLevel(),
 		}, fmt.Errorf("pod_name is required")
+	}
+
+	// Follow mode: stream logs until stop condition
+	if follow {
+		return t.followLogs(ctx, namespace, podName, containerName, tailLines, timestamps, stopPattern, durationStr, start)
 	}
 
 	logs, err := t.getPodLogs(ctx, namespace, podName, containerName, tailLines, timestamps)
@@ -109,12 +130,96 @@ func (t *LogsTool) Execute(ctx context.Context, params map[string]any) (*tools.T
 	}, nil
 }
 
+// followLogs streams logs until stop_pattern matches or duration expires.
+func (t *LogsTool) followLogs(ctx context.Context, namespace, podName, containerName string, tailLines int, timestamps bool, stopPattern, durationStr string, start time.Time) (*tools.ToolResult, error) {
+	maxDuration := 10 * time.Second
+	if durationStr != "" {
+		if d, err := time.ParseDuration(durationStr); err == nil {
+			maxDuration = d
+		}
+	}
+	if maxDuration > 60*time.Second {
+		maxDuration = 60 * time.Second
+	}
+
+	var stopRegex *regexp.Regexp
+	if stopPattern != "" {
+		var err error
+		stopRegex, err = regexp.Compile(stopPattern)
+		if err != nil {
+			return nil, fmt.Errorf("invalid stop_pattern regex: %w", err)
+		}
+	}
+
+	followCtx, cancel := context.WithTimeout(ctx, maxDuration)
+	defer cancel()
+
+	logStream, err := t.streamPodLogs(followCtx, namespace, podName, containerName, tailLines, timestamps)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = logStream.Close() }()
+
+	var allLines []string
+	scanner := bufio.NewScanner(logStream)
+	for scanner.Scan() {
+		line := scanner.Text()
+		allLines = append(allLines, line)
+
+		if stopRegex != nil && stopRegex.MatchString(line) {
+			break
+		}
+
+		select {
+		case <-followCtx.Done():
+			goto done
+		default:
+		}
+	}
+
+done:
+	logs := &PodLogs{
+		PodName:       podName,
+		Namespace:     namespace,
+		ContainerName: containerName,
+		Logs:          strings.Join(allLines, "\n"),
+		LogLines:      allLines,
+	}
+
+	msg := fmt.Sprintf("Streamed logs from pod %s/%s (%d lines)", namespace, podName, len(allLines))
+	if stopRegex != nil && len(allLines) > 0 && stopRegex.MatchString(allLines[len(allLines)-1]) {
+		msg += " [stopped by pattern match]"
+	}
+
+	return &tools.ToolResult{
+		Success:   true,
+		Data:      logs,
+		Message:   msg,
+		Timestamp: start,
+		Duration:  time.Since(start).String(),
+		ToolName:  t.Name(),
+		RiskLevel: t.RiskLevel(),
+	}, nil
+}
+
 type PodLogs struct {
 	PodName       string
 	Namespace     string
 	ContainerName string
 	Logs          string
 	LogLines      []string
+}
+
+func (t *LogsTool) streamPodLogs(ctx context.Context, namespace, podName, containerName string, tailLines int, timestamps bool) (io.ReadCloser, error) {
+	tail := int64(tailLines)
+	logOptions := &corev1.PodLogOptions{
+		Container:  containerName,
+		TailLines:  &tail,
+		Timestamps: timestamps,
+		Follow:     true, // Enable server-side follow
+	}
+
+	return t.client.CoreV1().Pods(namespace).GetLogs(podName, logOptions).Stream(ctx)
 }
 
 func (t *LogsTool) getPodLogs(ctx context.Context, namespace, podName, containerName string, tailLines int, timestamps bool) (*PodLogs, error) {

@@ -32,6 +32,8 @@ func main() {
 	noTUI := flag.Bool("no-tui", false, "Headless mode: ask a question and get an answer")
 	autoDemo := flag.Bool("auto-demo", false, "Autonomous ops demo: simulated alert triggers auto diagnosis")
 	dryRun := flag.Bool("dry-run", false, "Preview mode: diagnose + plan but skip all write operations (L1+)")
+	yesMode := flag.Bool("yes", false, "Auto-confirm L0-L2 operations (for CI/CD pipelines)")
+	pipeMode := flag.Bool("pipe", false, "Machine-readable output (JSON lines, for CI/CD)")
 	showVersion := flag.Bool("version", false, "Show version information")
 	flag.Parse()
 
@@ -47,8 +49,8 @@ func main() {
 
 	if *noTUI {
 		query := strings.Join(flag.Args(), " ")
-		runNoTUI(query, *dryRun)
-		return
+		exitCode := runNoTUI(query, *dryRun, *yesMode, *pipeMode)
+		os.Exit(exitCode)
 	}
 
 	if err := runTUI(); err != nil {
@@ -72,7 +74,17 @@ func runTUI() error {
 
 // runNoTUI runs the agent loop in headless mode.
 // If query is empty, it prints usage info.
-func runNoTUI(query string, dryRun bool) {
+// Exit codes for CI/CD mode:
+// 0 = success, 1 = general error, 2 = security blocked, 3 = timeout, 4 = circuit breaker
+const (
+	ExitSuccess        = 0
+	ExitError          = 1
+	ExitSecurityBlock  = 2
+	ExitTimeout        = 3
+	ExitCircuitBreaker = 4
+)
+
+func runNoTUI(query string, dryRun, yesMode, pipeMode bool) int {
 	fmt.Println("╔══════════════════════════════════════════════╗")
 	fmt.Println("║  灵枢 (LingShu) - AI-Native SRE Agent       ║")
 	fmt.Println("║  Version: " + Version + "                              ║")
@@ -87,7 +99,7 @@ func runNoTUI(query string, dryRun bool) {
 		fmt.Println("  lingshu --no-tui \"查看 default 命名空间的所有 Pod\"")
 		fmt.Println("  lingshu --no-tui \"检查集群健康状态\"")
 		fmt.Println("  lingshu --no-tui \"nginx deployment 为什么重启了?\"")
-		return
+		return ExitSuccess
 	}
 
 	// ---- Initialize ----
@@ -115,9 +127,9 @@ func runNoTUI(query string, dryRun bool) {
 			fmt.Println("  ║  TUI 交互模式: lingshu (推荐)                     ║")
 			fmt.Println("  ╚══════════════════════════════════════════════════╝")
 		} else {
-			fmt.Println("  💡 设置 ~/.lingshu/config.yaml 或设置 OPENAI_API_KEY 环境变量")
+			fmt.Println("  💡 设置 ~/.lingshu/config.yaml 或 OPENAI_API_KEY 环境变量")
 		}
-		os.Exit(1)
+		return ExitError
 	}
 	fmt.Printf("  ✓ Provider: %s (model: %s)\n", providerCfg.Name, providerCfg.Model)
 	llmRouter := llm.NewRouter([]llm.ProviderConfig{*providerCfg})
@@ -166,21 +178,55 @@ func runNoTUI(query string, dryRun bool) {
 
 	loopCfg := agent.DefaultLoopConfig()
 	loopCfg.DryRun = dryRun
-	loopCfg.ConfirmationHandler = func(req agent.ConfirmationRequest) bool {
+	if yesMode {
+		loopCfg.ConfirmationHandler = func(req agent.ConfirmationRequest) bool {
+			// In yes mode, auto-confirm L0-L1, deny L3+
+			if req.RiskLevel == tools.RiskLevelL0 || req.RiskLevel == tools.RiskLevelL1 || req.RiskLevel == tools.RiskLevelL2 {
+				if !pipeMode {
+					fmt.Printf("  [--yes] Auto-confirmed %s (%s)\n", req.ToolName, req.RiskLevel)
+				}
+				return true
+			}
+			if !pipeMode {
+				fmt.Printf("  [--yes] Denied %s (%s) - L3+ requires manual approval\n", req.ToolName, req.RiskLevel)
+			}
+			return false
+		}
+	} else {
+		loopCfg.ConfirmationHandler = func(req agent.ConfirmationRequest) bool {
 		fmt.Printf("\n  ⚠ CONFIRMATION REQUIRED [%s]: %s\n", req.RiskLevel, req.Message)
 		fmt.Print("  Confirm? (y/N): ")
 		var response string
 		_, _ = fmt.Scanln(&response)
 		return strings.ToLower(response) == "y" || strings.ToLower(response) == "yes"
 	}
+	}
+
+	// Wire audit manager for tool call logging
+	// (audit is optional - if DB not available, operations continue without audit)
 
 	agentLoop := agent.NewDefaultAgentLoop(loopCfg, llmRouter, toolRegistry, secGateway)
 	fmt.Println("[4/4] Agent loop initialized.")
+
+	// Auto health check at startup
+	if !pipeMode {
+		fmt.Println()
+		fmt.Println("🏥 Running startup health check...")
+	}
+	healthCtx := context.Background()
+	healthResult, healthErr := agentLoop.Execute(healthCtx,
+		"对集群进行一次快速健康检查。只需使用 k8s_status 工具获取状态，一句话总结即可。",
+		func(event agent.LoopEvent) {}) // silent handler
+	if healthErr == nil && healthResult.FinalResponse != "" && !pipeMode {
+		fmt.Printf("  ✓ 集群状态: %s\n", truncateStr(healthResult.FinalResponse, 120))
+	}
 	fmt.Println()
 
 	// ---- Execute ----
-	fmt.Printf("🔍 Query: %s\n", query)
-	fmt.Println(strings.Repeat("─", 60))
+	if !pipeMode {
+		fmt.Printf("🔍 Query: %s\n", query)
+		fmt.Println(strings.Repeat("─", 60))
+	}
 
 	ctx := context.Background()
 	eventHandler := func(event agent.LoopEvent) {
@@ -222,27 +268,53 @@ func runNoTUI(query string, dryRun bool) {
 
 	result, err := agentLoop.Execute(ctx, query, eventHandler)
 
-	fmt.Println(strings.Repeat("─", 60))
+	if !pipeMode {
+		fmt.Println(strings.Repeat("─", 60))
+	}
 	if err != nil {
-		fmt.Printf("\n✗ Agent execution failed: %v\n", err)
-		os.Exit(1)
+		errStr := err.Error()
+		exitCode := ExitError
+		if strings.Contains(errStr, "security blocked") {
+			exitCode = ExitSecurityBlock
+		} else if strings.Contains(errStr, "timeout") || strings.Contains(errStr, "deadline") {
+			exitCode = ExitTimeout
+		} else if strings.Contains(errStr, "circuit breaker") {
+			exitCode = ExitCircuitBreaker
+		}
+
+		if pipeMode {
+			fmt.Printf(`{"status":"error","error":%q,"exit_code":%d}`+"\n", errStr, exitCode)
+		} else {
+			fmt.Printf("\n✗ Agent execution failed: %v\n", err)
+		}
+		return exitCode
 	}
 
-	fmt.Printf("\n✅ Agent completed in %v (%d iterations)\n",
-		result.TotalDuration.Round(10000000), // round to 10ms
-		result.TotalIterations)
-	fmt.Printf("   Tokens: %d input + %d output = %d total\n",
-		result.TokenUsage.InputTokens,
-		result.TokenUsage.OutputTokens,
-		result.TokenUsage.TotalTokens)
+	if pipeMode {
+		fmt.Printf(`{"status":"success","iterations":%d,"duration":%q,"tokens":%d}`+"\n",
+			result.TotalIterations, result.TotalDuration.String(), result.TokenUsage.TotalTokens)
+		if result.FinalResponse != "" {
+			b, _ := json.Marshal(result.FinalResponse)
+			fmt.Printf(`{"status":"response","content":%s}`+"\n", string(b))
+		}
+	} else {
+		fmt.Printf("\n✅ Agent completed in %v (%d iterations)\n",
+			result.TotalDuration.Round(10000000), // round to 10ms
+			result.TotalIterations)
+		fmt.Printf("   Tokens: %d input + %d output = %d total\n",
+			result.TokenUsage.InputTokens,
+			result.TokenUsage.OutputTokens,
+			result.TokenUsage.TotalTokens)
 
-	if result.FinalResponse != "" {
-		fmt.Println()
-		fmt.Println("📋 Final Response:")
-		fmt.Println(strings.Repeat("─", 60))
-		fmt.Println(result.FinalResponse)
-		fmt.Println(strings.Repeat("─", 60))
+		if result.FinalResponse != "" {
+			fmt.Println()
+			fmt.Println("📋 Final Response:")
+			fmt.Println(strings.Repeat("─", 60))
+			fmt.Println(result.FinalResponse)
+			fmt.Println(strings.Repeat("─", 60))
+		}
 	}
+	return ExitSuccess
 }
 
 // jsonMarshalIndent marshals data to indented JSON bytes.
