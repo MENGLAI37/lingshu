@@ -244,14 +244,22 @@ func (al *DefaultAgentLoop) ExecuteWithTools(ctx context.Context, input string, 
 	return result, nil
 }
 
+type ConfirmationEventData struct {
+	ToolName      string
+	Arguments     map[string]any
+	Message       string
+	RiskLevel     tools.ToolRiskLevel
+	Token         string
+	Confirmed     bool
+}
+
 // executeTools executes the parsed tool calls.
 func (al *DefaultAgentLoop) executeTools(ctx context.Context, toolCalls []ParsedToolCall, handler LoopEventHandler, state *LoopStateTracker) []ToolExecutionResult {
 	results := []ToolExecutionResult{}
 
-	// Security check for each tool call
 	for _, tc := range toolCalls {
 		if al.securityGateway != nil {
-			evaluation, err := al.securityGateway.EvaluateRisk(ctx, tc.Name, tc.Arguments)
+			eval, err := al.securityGateway.EvaluateRisk(ctx, tc.Name, tc.Arguments)
 			if err != nil {
 				results = append(results, ToolExecutionResult{
 					ToolName:  tc.Name,
@@ -262,7 +270,7 @@ func (al *DefaultAgentLoop) executeTools(ctx context.Context, toolCalls []Parsed
 				continue
 			}
 
-			allowed, reason := al.securityGateway.IsAllowed(ctx, evaluation)
+			allowed, reason := al.securityGateway.IsAllowed(ctx, eval)
 			if !allowed {
 				results = append(results, ToolExecutionResult{
 					ToolName:  tc.Name,
@@ -273,31 +281,48 @@ func (al *DefaultAgentLoop) executeTools(ctx context.Context, toolCalls []Parsed
 				al.emitEvent(handler, "error", state.state, state.currentPhase, fmt.Errorf("security blocked: %s", reason))
 				continue
 			}
-		}
-	}
 
-	// Filter allowed tool calls
-	allowedCalls := []ParsedToolCall{}
-	for i, tc := range toolCalls {
-		if i < len(results) && results[i].Error != nil {
-			continue
-		}
-		allowedCalls = append(allowedCalls, tc)
-	}
+			if al.securityGateway.RequiresConfirmation(ctx, eval) {
+				msg := al.securityGateway.GetConfirmationMessage(ctx, eval)
+				req := ConfirmationRequest{
+					ToolName:  tc.Name,
+					Arguments: tc.Arguments,
+					Message:   msg,
+					RiskLevel: eval.ToolRiskLevel,
+					Token:     tc.ToolCallID,
+				}
 
-	// Execute tools (parallel or sequential)
-	if al.config.EnableParallelTools && len(allowedCalls) > 1 {
-		parallelResults := al.parallelExec.ExecuteParallel(ctx, allowedCalls, al.toolRegistry)
-		results = append(results, parallelResults...)
-		for _, pr := range parallelResults {
-			al.emitEvent(handler, "tool_result", state.state, state.currentPhase, pr)
+				al.emitEvent(handler, "confirmation_request", state.state, state.currentPhase, req)
+
+				var confirmed bool
+				if al.config.ConfirmationHandler != nil {
+					confirmed = al.config.ConfirmationHandler(req)
+				}
+
+				al.emitEvent(handler, "confirmation_response", state.state, state.currentPhase, ConfirmationEventData{
+					ToolName:  tc.Name,
+					Arguments: tc.Arguments,
+					Message:   msg,
+					RiskLevel: eval.ToolRiskLevel,
+					Token:     tc.ToolCallID,
+					Confirmed: confirmed,
+				})
+
+				if !confirmed {
+					results = append(results, ToolExecutionResult{
+						ToolName:  tc.Name,
+						Arguments: tc.Arguments,
+						Error:     fmt.Errorf("operation cancelled by user"),
+						Timestamp: time.Now(),
+					})
+					continue
+				}
+			}
 		}
-	} else {
-		for _, tc := range allowedCalls {
-			result := al.executeSingleTool(ctx, tc)
-			results = append(results, result)
-			al.emitEvent(handler, "tool_result", state.state, state.currentPhase, result)
-		}
+
+		result := al.executeSingleTool(ctx, tc)
+		results = append(results, result)
+		al.emitEvent(handler, "tool_result", state.state, state.currentPhase, result)
 	}
 
 	return results
