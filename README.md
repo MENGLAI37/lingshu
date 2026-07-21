@@ -1,287 +1,397 @@
-# 灵枢 (LingShu)
+# 灵枢 (LingShu) — AI-Native SRE Agent
 
-> 面向 SRE 的 AI 原生智能运维代理
+> **Talk to your cluster. Let the agent do the work.**
 
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![Go Version](https://img.shields.io/badge/go-1.22+-00ADD8.svg)](https://golang.org/)
 [![CI](https://github.com/MENGLAI37/lingshu/actions/workflows/ci.yaml/badge.svg)](https://github.com/MENGLAI37/lingshu/actions/workflows/ci.yaml)
+[![Coverage](https://img.shields.io/badge/coverage-33%25-yellow)]()
 
-## 项目概述
+LingShu is a terminal-native, AI-powered operations agent for SRE teams. It connects to your Kubernetes cluster, understands natural language intent, and autonomously diagnoses and remediates issues — with a five-level safety gateway that ensures nothing dangerous happens without your approval.
 
-灵枢（LingShu）是一款面向 Site Reliability Engineering (SRE) 领域的 AI 原生智能运维代理，旨在实现**自主故障响应**和**基础设施编排**。
+---
 
-### 核心价值
+## Why LingShu?
 
-- 🤖 **AI 驱动**：基于 LLM 的自然语言交互，理解运维意图
-- 🛡️ **安全第一**：五级风险控制 + 完整审计证据链
-- ⚡ **即时响应**：秒级故障诊断，自动触发修复流程
-- 🔄 **自主执行**：从诊断到修复的闭环自动化
+| Problem | LingShu's Answer |
+|---------|-----------------|
+| Switching between 5+ tools to diagnose one incident | One terminal, one natural language query |
+| 3am on-call mistakes on production | Five-level risk gating (L0–L4) with environment-aware scoring |
+| No audit trail for compliance | Immutable evidence chain with hash-linked audit records |
+| LLM hallucinates kubectl commands | Agent loop enforces tool-use; never outputs raw commands |
+| GitOps controllers revert manual fixes | Built-in ArgoCD/Flux detection with conflict warnings |
+| Agent runs away with write operations | Circuit breaker + dead-loop detection + per-session L2 caps |
 
-## 核心功能
+---
 
-### 1.1 TUI 终端界面
+## Quick Start
 
-基于 Bubble Tea 框架构建的交互式终端界面：
+### Prerequisites
 
-- 📝 **多行输入**：支持粘贴 YAML/JSON，↑/↓ 浏览历史
-- 🌊 **流式输出**：LLM 响应实时渲染，无卡顿
-- ⚠️ **命令预览**：执行前显示命令，风险等级高亮
-- 📊 **状态栏**：显示集群、命名空间、Token 用量、成本
-- 🎨 **语法高亮**：YAML/JSON/Table 结构化输出
-- 🌓 **主题切换**：暗色/亮色/高对比度模式
+- **Go 1.22+**
+- **kubectl** with a valid kubeconfig (or in-cluster service account)
+- **LLM API key** — OpenAI, DeepSeek, Claude, or local Ollama
 
-### 1.2 命令执行与安全控制
-
-| 风险等级 | 标识颜色 | 说明 | 操作 |
-|---------|---------|------|------|
-| L0 | 绿色 | 只读查询 | 自动执行 |
-| L1 | 蓝色 | 低风险操作 | 确认后执行 |
-| L2 | 黄色 | 中等风险 | 明确确认 |
-| L3 | 红色 | 高风险操作 | 双重确认 |
-| L4 | 紫色 | 极高风险 | 拒绝执行 |
-
-### 1.3 智能诊断
-
-支持多维度故障诊断：
-
-- 🔍 Pod 重启原因分析
-- 📈 资源瓶颈识别
-- 🌐 网络连通性检查
-- 💾 存储卷问题定位
-- ⚙️ 配置错误检测
-
-## 技术栈
-
-| 层级 | 技术选型 |
-|------|---------|
-| **核心语言** | Go 1.22+ |
-| **TUI 框架** | Bubble Tea / Bubbles / Lip Gloss |
-| **Kubernetes** | client-go |
-| **数据库** | PostgreSQL 15 / SQLite (fallback) |
-| **缓存** | Redis 7.x (Sentinel) |
-| **向量库** | ChromaDB |
-| **对象存储** | MinIO (S3-compatible) |
-| **日志** | slog (JSON 格式) |
-| **配置** | Viper |
-| **容器** | Docker / Kubernetes / Helm |
-
-## 快速开始
-
-### 前置要求
-
-- Go 1.22+
-- Docker & Docker Compose
-- Kind (用于本地 K8s 测试)
-- kubectl
-
-### 1. 克隆代码
+### Install
 
 ```bash
-git clone https://github.com/lingshu/lingshu.git
+git clone https://github.com/MENGLAI37/lingshu.git
 cd lingshu
-```
-
-### 2. 启动开发环境
-
-```bash
-# 启动 PostgreSQL, Redis, MinIO, ChromaDB
-make dev-up
-
-# 初始化数据库
-make migrate-up
-```
-
-### 3. 构建二进制
-
-```bash
-# 构建主程序
 make build
-
-# 或交叉编译
-make build-all
 ```
 
-### 4. 运行
+### Run
 
 ```bash
-# TUI 模式（推荐）
+# Interactive TUI mode
 ./bin/lingshu
 
-# 无 TUI 模式
-./bin/lingshu --no-tui
+# Headless mode — ask a question, get an answer
+./bin/lingshu --no-tui "Why is nginx crashing in production?"
 
-# 查看版本
-./bin/lingshu --version
+# CI/CD pipeline mode — auto-confirm L0–L2, machine-readable output
+./bin/lingshu --no-tui --yes --pipe "Scale payment-api to 5 replicas"
+
+# Dry-run — full reasoning chain, zero side effects
+./bin/lingshu --no-tui --dry-run "Restart all failing pods"
+
+# Autonomous ops demo
+./bin/lingshu --auto-demo
 ```
 
-### 5. 运行测试
+### Configure LLM
 
 ```bash
-# 单元测试
-make test
-
-# 带覆盖率
-make test-coverage
-
-# 集成测试（需要 Kind 集群）
-make kind-create
-make test-integration
+export OPENAI_API_KEY="sk-..."     # OpenAI
+export DEEPSEEK_API_KEY="sk-..."   # DeepSeek
+export ANTHROPIC_API_KEY="sk-..."  # Claude
+# Or use local Ollama — auto-detected at http://localhost:11434
 ```
 
-## 目录结构
+---
+
+## Features
+
+### 🤖 Autonomous Agent Loop
+
+The core reasoning engine follows a **Think → Act → Observe → Reflect** cycle:
+
+1. **Think** — LLM analyzes the current state and decides which tools to call
+2. **Act** — Execute K8s tools; security gateway evaluates every operation
+3. **Observe** — Results are fed back into context for the next reasoning step
+4. **Reflect** — Loop continues until resolution or timeout (5 min default)
+
+Built-in safeguards:
+- **Circuit breaker** — caps L2+ operations per session; auto-pauses on consecutive writes
+- **Dead-loop detection** — identifies repeating tool patterns and error cycles
+- **Global timeout** — context deadline prevents runaway execution
+- **Panic recovery** — returns partial results instead of crashing
+
+### 🛡️ Five-Level Security Gateway (L0–L4)
+
+| Level | Color | Description | Behavior |
+|-------|-------|-------------|----------|
+| **L0** | Green | Read-only queries (`get`, `describe`, `logs`, `events`) | Auto-execute |
+| **L1** | Blue | Safe writes (`top`, `status`) | Auto-execute |
+| **L2** | Yellow | Moderate risk (`scale`, `restart`, `rollout`, `patch`) | Confirm |
+| **L3** | Red | High risk (destructive operations) | Double-confirm |
+| **L4** | Purple | Critical risk (cluster-level RBAC, namespace deletion) | Blocked |
+
+The gateway combines **three risk evaluators** (tool type, environment, resource sensitivity) and **three blocking rules** (production safety, namespace protection, cluster-level RBAC):
+
+- `production` environment adds +20 risk points; `kube-system` adds +30
+- ClusterRole/RoleBinding modifications are always blocked
+- On-call + change-window checks for L3+ operations
+- **GitOps conflict detection** — warns before modifying ArgoCD/Flux-managed resources
+
+### 📋 K8s Tool Arsenal
+
+| Tool | Level | What it does |
+|------|-------|-------------|
+| `k8s_get` | L0 | Get pods, deployments, services, events, ingresses, configmaps |
+| `k8s_describe` | L0 | Detailed resource description with status analysis |
+| `k8s_logs` | L0 | Pod log retrieval with follow/stream support |
+| `k8s_events` | L0 | Namespace events with warning classification |
+| `k8s_top` | L1 | Pod and node resource usage (CPU/memory) |
+| `k8s_status` | L1 | Multi-dimensional cluster health check (nodes, pods, deployments) |
+| `k8s_scale` | L2 | Scale deployments, statefulsets, replica sets |
+| `k8s_restart` | L2 | Rolling restart via annotation trigger |
+| `k8s_rollout` | L2 | Rollout status, history, undo, pause, resume |
+| `k8s_patch` | L2 | Strategic merge, JSON patch, apply patches |
+
+All tools are registered in the agent's tool registry. The LLM sees their schemas and decides which to call — it **never outputs raw kubectl commands**.
+
+### 🔍 Autonomous Operations Engine
+
+The `--auto-demo` flag demonstrates a complete autonomous remediation pipeline:
+
+```
+Alert fires → Engine receives webhook → Auto-diagnoses with K8s tools
+→ LLM analyzes root cause → Risk evaluation → User confirmation (L2+)
+→ Execute fix → Audit trail recorded
+```
+
+The `alertd` binary runs as a standalone webhook server accepting alerts from Prometheus AlertManager, PagerDuty, and generic sources.
+
+### 📊 Audit & Compliance
+
+Every L1+ operation is recorded with:
+- **Evidence chain** — hash-linked records (`prev_hash → content_hash`) for tamper-proof audit trails
+- **Batch write** — async with configurable batch size, non-blocking for agent performance
+- **File fallback** — automatically writes to JSONL when database is unavailable
+- **Rich metadata** — pre-check results, impact analysis, rollback info, approval records
+
+### 🖥️ Terminal UI (Bubble Tea)
+
+- **Multi-line input** with history navigation (↑/↓)
+- **Streaming output** — LLM responses render in real-time
+- **Command preview** — risk-level highlighted before execution
+- **Status bar** — cluster, namespace, token usage, cost
+- **Syntax highlighting** — YAML, JSON, tables
+- **Theme switching** — dark, light, high-contrast
+- **Configuration panel** — change LLM provider/model on the fly
+- **Confirmation modal** — clear risk assessment before L2+ execution
+
+### 🔗 GitOps Conflict Detection
+
+Before any L2+ operation, LingShu checks whether the target resource is managed by ArgoCD or Flux (via annotations and labels). If detected, the confirmation prompt includes a **conflict warning** explaining that the change will be reverted and suggesting the correct GitOps workflow.
+
+### 🧩 Additional Capabilities
+
+- **Multi-provider LLM router** — OpenAI, Claude, Ollama with automatic failover
+- **RBAC self-check** — startup verification of service account permissions for each tool
+- **Session management** — full CRUD with parent-child chains, TTL, token budgets
+- **Workflow engine** — DAG-based workflows with conditions, variables, and tool actions
+- **Scheduler** — cron/interval/once jobs for periodic health checks
+- **Pre-mutation snapshots** — save resource YAML before L2+ changes for rollback
+- **Configuration hot-reload** — Viper + fsnotify for zero-downtime config changes
+
+---
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                     lingshu (TUI/CLI)                    │
+│  ┌─────────┐  ┌──────────┐  ┌────────────┐             │
+│  │ Bubble  │  │  Agent   │  │  Security  │             │
+│  │ Tea TUI │  │  Loop    │  │  Gateway   │             │
+│  └─────────┘  └────┬─────┘  └─────┬──────┘             │
+│                    │              │                      │
+│         ┌──────────┼──────────────┼──────────┐          │
+│         │          │              │          │          │
+│    ┌────▼──┐ ┌────▼──┐ ┌───────▼──┐ ┌─────▼───┐       │
+│    │  LLM  │ │  K8s  │ │ Circuit  │ │  Audit  │       │
+│    │ Router│ │ Tools │ │ Breaker  │ │ Manager │       │
+│    └───────┘ └───────┘ └──────────┘ └─────────┘       │
+└─────────────────────────────────────────────────────────┘
+                         │
+          ┌──────────────┼──────────────┐
+          │              │              │
+     ┌────▼──┐    ┌─────▼─────┐   ┌────▼────┐
+     │  LLM  │    │Kubernetes │   │  Infra  │
+     │(Cloud │    │  Cluster  │   │PostgreSQL│
+     │ Local)│    │           │   │ Redis   │
+     └───────┘    └───────────┘   │ MinIO   │
+                                  │ChromaDB │
+                                  └─────────┘
+```
+
+---
+
+## Project Structure
 
 ```
 lingshu/
-├── cmd/                      # 可执行程序入口
-│   ├── lingshu/             # 主程序 (TUI)
-│   └── alertd/              # 告警 Webhook 服务
-├── pkg/                      # 核心业务包
-│   ├── cache/               # Redis 缓存封装
-│   ├── config/               # 配置管理 (Viper)
-│   ├── db/                   # 数据库封装 (sqlx)
-│   ├── logger/               # 日志框架 (slog)
-│   ├── tui/                  # TUI 组件
-│   │   ├── components/       # UI 组件
-│   │   │   ├── chat_view.go      # 聊天视图
-│   │   │   ├── multiline_input.go # 多行输入
-│   │   │   ├── stream_renderer.go # 流式渲染
-│   │   │   ├── command_preview.go # 命令预览
-│   │   │   ├── status_bar.go     # 状态栏
-│   │   │   └── highlighted_renderer.go # 高亮渲染
-│   │   ├── models/           # TUI 模型
-│   │   ├── styles/           # 样式定义
-│   │   └── theme/            # 主题系统
-│   └── testutil/             # 测试工具
-├── migrations/               # 数据库迁移脚本
-├── charts/                  # Helm Chart
-├── configs/                  # 配置文件示例
-├── deployments/              # K8s 部署清单
-├── tests/                    # 集成测试
-└── docs/                     # 文档
+├── cmd/
+│   ├── lingshu/          # Main CLI/TUI entry point
+│   └── alertd/           # Alert webhook server
+├── pkg/
+│   ├── agent/            # Core agent loop, parser, timeout, circuit breaker
+│   ├── alertd/           # Alert server (AlertManager/PagerDuty webhooks)
+│   ├── audit/            # Audit logging with evidence chain
+│   ├── cache/            # Redis cache wrapper
+│   ├── config/           # Viper-based configuration
+│   ├── db/               # Database abstraction (PostgreSQL / SQLite)
+│   ├── gitops/           # ArgoCD/Flux ownership detection
+│   ├── k8s/              # Kubernetes client manager, RBAC checks
+│   ├── llm/              # LLM router (OpenAI, Claude, Ollama)
+│   ├── logger/           # Structured logging (slog)
+│   ├── rag/              # ChromaDB vector store for Runbook RAG
+│   ├── scheduler/        # Cron job scheduler
+│   ├── security/         # Five-level risk gateway
+│   ├── session/          # Session persistence and lifecycle
+│   ├── snapshot/         # Pre-mutation resource snapshots
+│   ├── testutil/         # Shared test helpers and mocks
+│   ├── tools/            # Tool interface + formatter
+│   │   ├── l0/           # Read-only tools
+│   │   ├── l1/           # Safe write tools
+│   │   └── l2/           # Moderate risk tools
+│   ├── tui/              # Terminal UI
+│   │   ├── components/   # Chat, input, status bar, command preview
+│   │   ├── models/       # TUI state model
+│   │   ├── styles/       # Lipgloss style definitions
+│   │   └── theme/        # Dark/light/high-contrast themes
+│   └── workflow/         # DAG workflow engine
+├── migrations/            # PostgreSQL migration scripts
+├── charts/                # Helm chart for Kubernetes deployment
+├── configs/               # Example configuration files
+├── deployments/           # Kubernetes deployment manifests
+├── tests/                 # Integration tests
+├── docs/                  # PRDs, system design, task breakdown
+├── Makefile               # Build, test, deploy targets
+├── Dockerfile             # Multi-stage distroless build
+└── docker-compose.yaml    # Dev environment (PG, Redis, MinIO, ChromaDB)
 ```
 
-## 开发指南
+---
 
-### Makefile 命令
+## Development
+
+### Dev Environment
 
 ```bash
-# 构建
-make build              # 构建所有二进制
-make build-all          # 交叉编译 (linux/darwin/windows, amd64/arm64)
+# Start dependencies (PostgreSQL, Redis, MinIO, ChromaDB)
+make dev-up
 
-# 测试
-make test               # 运行所有测试
-make test-short         # 短测试（跳过集成测试）
-make test-integration   # 集成测试
-make test-coverage      # 生成覆盖率报告
+# Initialize database schema
+make migrate-up
 
-# 代码质量
-make lint               # 代码检查
-make lint-fix           # 自动修复
+# Build all binaries
+make build
 
-# 开发环境
-make dev-up             # 启动 Docker Compose
-make dev-down           # 停止 Docker Compose
-make dev-logs           # 查看容器日志
+# Run all tests
+make test
 
-# 数据库
-make migrate-up         # 执行迁移
-make migrate-down       # 回滚迁移
-make migrate-create     # 创建新迁移
+# Run tests with coverage
+make test-coverage
 
-# Kubernetes
-make kind-create        # 创建 Kind 集群
-make kind-delete        # 删除 Kind 集群
-make helm-install       # 安装 Helm Chart
-make helm-upgrade       # 升级 Helm Chart
-
-# Docker
-make docker-build       # 构建 Docker 镜像
-make docker-push        # 推送镜像到仓库
+# Lint
+make lint
 ```
 
-### TUI 快捷键
+### Common Make Targets
 
-| 按键 | 功能 |
-|------|------|
-| `Enter` | 发送消息 |
-| `Shift+Enter` | 换行 |
-| `↑/↓` | 浏览历史记录 |
-| `?` | 显示/隐藏帮助 |
-| `Esc` | 关闭弹窗/取消操作 |
-| `Ctrl+C` / `q` | 退出程序 |
-| `Y` | 确认执行命令 |
-| `N` | 取消执行命令 |
-| `PgUp/PgDn` | 翻页滚动 |
-| `Home/End` | 跳转到开头/结尾 |
+| Target | Description |
+|--------|------------|
+| `make build` | Build all binaries |
+| `make build-all` | Cross-compile (linux/darwin/windows × amd64/arm64) |
+| `make test` | Run all unit tests with race detection |
+| `make test-short` | Skip integration tests |
+| `make test-integration` | Run integration tests (requires Kind cluster) |
+| `make test-coverage` | Generate coverage report |
+| `make lint` | Run golangci-lint |
+| `make lint-fix` | Auto-fix lint issues |
+| `make dev-up` | Start Docker Compose dev environment |
+| `make dev-down` | Stop Docker Compose dev environment |
+| `make migrate-up` | Run database migrations |
+| `make migrate-down` | Rollback database migrations |
+| `make kind-create` | Create local Kind cluster for testing |
+| `make docker-build` | Build Docker image |
+| `make helm-install` | Deploy to Kubernetes via Helm |
 
-## 部署
+---
 
-### Docker Compose (开发环境)
+## Deployment
+
+### Docker
+
+```bash
+docker build -t lingshu:latest .
+docker run -e OPENAI_API_KEY=$OPENAI_API_KEY \
+           -v ~/.kube:/home/nonroot/.kube \
+           lingshu:latest --no-tui "Cluster health check"
+```
+
+### Kubernetes (Helm)
+
+```bash
+helm install lingshu ./charts/ops-ai \
+  --namespace lingshu \
+  --create-namespace \
+  --set llm.apiKey=$OPENAI_API_KEY
+```
+
+### Docker Compose (Dev)
 
 ```bash
 docker-compose up -d
 ```
 
-### Kubernetes (生产环境)
+---
 
-```bash
-# 添加 Helm 仓库
-helm repo add lingshu https://charts.lingshu.example.com
-helm repo update
+## Test Coverage
 
-# 安装
-helm install lingshu lingshu/lingshu \
-  --namespace lingshu \
-  --create-namespace \
-  --set image.repository=ghcr.io/lingshu/lingshu \
-  --set image.tag=v0.1.0
+| Package | Coverage | Notes |
+|---------|----------|-------|
+| `security` | 86.9% | Risk evaluators, rules, gateway |
+| `rag` | 85.1% | ChromaDB vector store |
+| `tools` | 75.2% | Tool interface, formatter |
+| `llm` | 72.5% | OpenAI, Claude, Ollama providers |
+| `alertd` | 68.4% | Alert webhook server |
+| `gitops` | 64.6% | ArgoCD/Flux detection |
+| `workflow` | 61.2% | Workflow engine |
+| `scheduler` | 56.7% | Cron scheduler |
+| `logger` | 55.0% | Structured logging |
+| `k8s` | 41.2% | Client manager, RBAC |
+| `tui/styles` | 100% | Style definitions |
+| `tui/theme` | 100% | Theme system |
+
+**Overall: 32.9%** (25 test suites, all passing)
+
+---
+
+## Configuration
+
+Configuration is loaded from `~/.lingshu/config.yaml` or environment variables. Key sections:
+
+```yaml
+# LLM provider selection
+llm:
+  provider: openai       # openai | claude | ollama
+  model: gpt-4o
+  api_key: ${OPENAI_API_KEY}
+
+# Agent loop behavior
+agent:
+  max_iterations: 10
+  global_timeout: 5m
+  dry_run: false
+
+# Security gateway
+security:
+  strict_mode: true
+  allow_l2_in_production: true
+  allow_l3_in_production: false
+
+# GitOps detection
+gitops:
+  detect_argocd: true
+  detect_flux: true
 ```
 
-## API 文档
+---
 
-完整 REST API 规范见 [openapi.yaml](openapi.yaml)：
+## Roadmap
 
-- 会话管理 (`/api/v2/sessions`)
-- 对话与推理 (`/api/v2/sessions/{id}/chat`)
-- 告警处理 (`/api/v2/alerts`)
-- ChangeSet 操作 (`/api/v2/changesets`)
-- 全局暂停 (`/api/v2/pauses`)
-- 审计事件 (`/api/v2/audit/events`)
-- 事件管理 (`/api/v2/incidents`)
-- 健康检查 (`/api/v2/health`)
+| Version | Theme | Status |
+|---------|-------|--------|
+| **v1.8** | MVP — Terminal interaction + basic diagnosis | ✅ Current |
+| v1.9 | Enterprise-ready — Multi-tenancy, RBAC, secrets | 📋 Planned |
+| v2.0 | Production scale — HA, performance optimization | 📋 Planned |
+| v2.1 | Full-stack depth — GitOps, multi-cluster | 📋 Planned |
+| v2.2 | Security & DR — Idempotency, audit chain | 📋 Planned |
 
-## 里程碑
+---
 
-| 版本 | 目标 | 状态 |
-|------|------|------|
-| v1.8 | MVP - 终端交互 + 基础诊断 | 🔄 开发中 |
-| v1.9 | 企业就绪 - 多租户/RBAC/密钥 | 📋 规划中 |
-| v2.0 | 规模化生产 - HA/性能优化 | 📋 规划中 |
-| v2.1 | 全栈深度 - GitOps/多集群 | 📋 规划中 |
-| v2.2 | 安全灾备 - 幂等性/审计链 | 📋 规划中 |
+## License
 
-## 文档
+Apache License 2.0 — see [LICENSE](LICENSE).
 
-- [研发任务拆解](docs/lingshu-task-breakdown-final.md)
-- [PRD v2.3](docs/ops-ai-agent-prd-v2.3.md)
-- [系统设计文档](docs/ops-ai-agent-system-design.md)
+---
 
-## 贡献
+## Links
 
-欢迎提交 Issue 和 Pull Request！
-
-1. Fork 本仓库
-2. 创建特性分支 (`git checkout -b feature/AmazingFeature`)
-3. 提交更改 (`git commit -m 'Add some AmazingFeature'`)
-4. 推送到分支 (`git push origin feature/AmazingFeature`)
-5. 创建 Pull Request
-
-## 许可证
-
-本项目采用 Apache License 2.0 - 详见 [LICENSE](LICENSE) 文件
-
-## 联系方式
-
-- 项目主页: https://github.com/lingshu/lingshu
-- 邮箱: menglai378@163.com
+- **中文 README**: [README_zh.md](README_zh.md)
+- **Design Docs**: [docs/](docs/)
+- **API Spec**: [openapi.yaml](openapi.yaml)
