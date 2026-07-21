@@ -273,10 +273,11 @@ func (al *DefaultAgentLoop) executeTools(ctx context.Context, toolCalls []Parsed
 			allowed, reason := al.securityGateway.IsAllowed(ctx, eval)
 			if !allowed {
 				results = append(results, ToolExecutionResult{
-					ToolName:  tc.Name,
-					Arguments: tc.Arguments,
-					Error:     fmt.Errorf("security blocked: %s", reason),
-					Timestamp: time.Now(),
+					ToolName:   tc.Name,
+					Arguments:  tc.Arguments,
+					ToolCallID: tc.ToolCallID,
+					Error:      fmt.Errorf("security blocked: %s", reason),
+					Timestamp:  time.Now(),
 				})
 				al.emitEvent(handler, "error", state.state, state.currentPhase, fmt.Errorf("security blocked: %s", reason))
 				continue
@@ -310,10 +311,11 @@ func (al *DefaultAgentLoop) executeTools(ctx context.Context, toolCalls []Parsed
 
 				if !confirmed {
 					results = append(results, ToolExecutionResult{
-						ToolName:  tc.Name,
-						Arguments: tc.Arguments,
-						Error:     fmt.Errorf("operation cancelled by user"),
-						Timestamp: time.Now(),
+						ToolName:   tc.Name,
+						Arguments:  tc.Arguments,
+						ToolCallID: tc.ToolCallID,
+						Error:      fmt.Errorf("operation cancelled by user"),
+						Timestamp:  time.Now(),
 					})
 					continue
 				}
