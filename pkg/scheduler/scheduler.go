@@ -375,7 +375,7 @@ func parseCronField(field string, min, max int) ([]int, error) {
 
 	if len(field) > 2 && field[:2] == "*/" {
 		step := 0
-		fmt.Sscanf(field[2:], "%d", &step)
+		_, _ = fmt.Sscanf(field[2:], "%d", &step)
 		if step <= 0 {
 			return nil, fmt.Errorf("invalid step value")
 		}

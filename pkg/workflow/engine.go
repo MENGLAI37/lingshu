@@ -188,7 +188,7 @@ func (e *DefaultWorkFlowEngine) toFloat(v interface{}) float64 {
 		return val
 	case string:
 		var f float64
-		fmt.Sscanf(val, "%f", &f)
+		_, _ = fmt.Sscanf(val, "%f", &f)
 		return f
 	default:
 		return 0

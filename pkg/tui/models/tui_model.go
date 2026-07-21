@@ -630,11 +630,12 @@ func (m *TUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmds = append(cmds, cmd)
 
 		if msg, ok := msg.(tea.KeyMsg); ok {
-			if msg.Type == tea.KeyEnter {
+			switch msg.Type {
+			case tea.KeyEnter:
 				if m.confirmationModal.GetToken() == m.pendingConfirmationReq.Token {
 					m.SendMessage(ConfirmationResultMsg{Confirmed: m.confirmationModal.Confirm()})
 				}
-			} else if msg.Type == tea.KeyEsc {
+			case tea.KeyEsc:
 				if m.confirmationModal.GetToken() == m.pendingConfirmationReq.Token {
 					m.SendMessage(ConfirmationResultMsg{Confirmed: false})
 				}
