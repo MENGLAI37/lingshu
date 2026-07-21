@@ -373,7 +373,7 @@ func (al *DefaultAgentLoop) buildCompletionRequest(toolDefs []llm.FunctionDefini
 		Temperature:  0.7,
 		MaxTokens:    4000,
 		Functions:    toolDefs,
-		ToolChoice:   "required",
+		ToolChoice:   "auto",
 		Stream:       false,
 		SystemPrompt: systemPrompt,
 	}
