@@ -89,6 +89,7 @@ func newTestManager(t *testing.T, database *db.Database) *Manager {
 		batchSize:     10,
 		flushInterval: 100 * time.Millisecond,
 		stopCh:        make(chan struct{}),
+		sessionLastHash: make(map[string]string),
 	}
 
 	t.Cleanup(func() {
@@ -393,4 +394,173 @@ func TestAuditDefaultValues(t *testing.T) {
 	assert.Equal(t, int64(1), result.Total)
 	assert.Equal(t, "default", result.Events[0].Cluster)
 	assert.Equal(t, "default", result.Events[0].Namespace)
+}
+
+func TestEvidenceHashChain(t *testing.T) {
+	logger.Init("debug", "text")
+	database := setupAuditTestDB(t)
+	manager := newTestManager(t, database)
+
+	err := manager.Start()
+	require.NoError(t, err)
+
+	ctx := context.Background()
+	sessionID := "test-session-hash"
+	userID := "test-user"
+
+	// Log 3 events in the same session
+	for i := 0; i < 3; i++ {
+		req := &CreateAuditEventRequest{
+			SessionID: &sessionID,
+			UserID:    &userID,
+			Cluster:   "prod-cluster",
+			Namespace: "prod-ns",
+			Action:    ActionToolCall,
+			ToolName:  strPtr("k8s_scale"),
+			RiskLevel: RiskL2,
+			Target:    map[string]interface{}{"step": i},
+			Result:    map[string]interface{}{"success": true},
+		}
+		err := manager.Log(ctx, req)
+		require.NoError(t, err)
+	}
+
+	time.Sleep(300 * time.Millisecond)
+
+	// Verify all events have hash chain set
+	result, err := manager.List(ctx, &AuditFilter{
+		SessionID: &sessionID,
+		Limit:     10,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, int64(3), result.Total)
+
+	for _, event := range result.Events {
+		assert.NotNil(t, event.EvidenceChainHash, "event should have an evidence chain hash")
+		assert.Len(t, *event.EvidenceChainHash, 64, "SHA-256 hash should be 64 hex chars")
+	}
+
+	// Events in the same session should have different hashes (no duplicates)
+	hashes := make(map[string]bool)
+	for _, event := range result.Events {
+		hash := *event.EvidenceChainHash
+		assert.False(t, hashes[hash], "each event should have a unique chain hash")
+		hashes[hash] = true
+	}
+}
+
+func TestAuditReportGeneration(t *testing.T) {
+	logger.Init("debug", "text")
+	database := setupAuditTestDB(t)
+	manager := newTestManager(t, database)
+
+	err := manager.Start()
+	require.NoError(t, err)
+
+	ctx := context.Background()
+
+	// Log events at various risk levels
+	sessionID := "report-test-session"
+	for i := 0; i < 10; i++ {
+		req := &CreateAuditEventRequest{
+			SessionID: &sessionID,
+			Cluster:   "test-cluster",
+			Namespace: "test-ns",
+			Action:    ActionToolCall,
+			RiskLevel: RiskLevel(i % 2), // L0/L1 alternating
+			Result:    map[string]interface{}{"index": i},
+		}
+		_ = manager.Log(ctx, req)
+	}
+
+	// Add a few L2 operations
+	for i := 0; i < 3; i++ {
+		req := &CreateAuditEventRequest{
+			SessionID: &sessionID,
+			Cluster:   "test-cluster",
+			Namespace: "test-ns",
+			Action:    ActionToolCall,
+			RiskLevel: RiskL2,
+			Result:    map[string]interface{}{"index": i},
+		}
+		_ = manager.Log(ctx, req)
+	}
+
+	time.Sleep(300 * time.Millisecond)
+
+	// Generate a text report
+	opts := &ReportOptions{
+		Format:      ReportFormatText,
+		SessionID:   &sessionID,
+		VerifyChain: true,
+	}
+	report, err := manager.GenerateReport(ctx, opts)
+	require.NoError(t, err)
+	assert.NotNil(t, report)
+	assert.Equal(t, int64(13), report.Summary.TotalEvents)
+	assert.Equal(t, int64(1), report.Summary.TotalSessions)
+	assert.Equal(t, int64(3), report.Summary.L2PlusOperations)
+
+	// Verify text report renders
+	textReport := report.toText()
+	assert.Contains(t, textReport, "灵枢 (LingShu)")
+	assert.Contains(t, textReport, "审计报告")
+	assert.Contains(t, textReport, "执行摘要")
+
+	// Verify JSON report renders
+	jsonReport := report.toJSON()
+	assert.Contains(t, jsonReport, "generated_at")
+	assert.Contains(t, jsonReport, "total_events")
+	assert.Contains(t, jsonReport, "risk_distribution")
+
+	// Verify HTML report renders
+	htmlReport := report.toHTML()
+	assert.Contains(t, htmlReport, "<!DOCTYPE html>")
+	assert.Contains(t, htmlReport, "运行摘要")
+}
+
+func TestAuditReportFormats(t *testing.T) {
+	logger.Init("debug", "text")
+	database := setupAuditTestDB(t)
+	manager := newTestManager(t, database)
+
+	err := manager.Start()
+	require.NoError(t, err)
+
+	ctx := context.Background()
+
+	sessionID := "format-test"
+	req := &CreateAuditEventRequest{
+		SessionID: &sessionID,
+		Cluster:   "prod",
+		Namespace: "default",
+		Action:    ActionToolCall,
+		RiskLevel: RiskL0,
+		Result:    map[string]interface{}{"ok": true},
+	}
+	_ = manager.Log(ctx, req)
+
+	time.Sleep(200 * time.Millisecond)
+
+	// Test text format
+	opts := &ReportOptions{Format: ReportFormatText}
+	report, err := manager.GenerateReport(ctx, opts)
+	require.NoError(t, err)
+	textOutput := report.toText()
+	assert.NotEmpty(t, textOutput)
+	assert.Contains(t, textOutput, "L0 (只读)")
+
+	// Test JSON format
+	jsonOutput := report.toJSON()
+	assert.NotEmpty(t, jsonOutput)
+	assert.Contains(t, jsonOutput, "\"L0\"")
+
+	// Test HTML format
+	htmlOutput := report.toHTML()
+	assert.NotEmpty(t, htmlOutput)
+	assert.Contains(t, htmlOutput, "lang=\"zh-CN\"")
+}
+
+func strPtr(s string) *string {
+	return &s
 }

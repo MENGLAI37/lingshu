@@ -50,9 +50,11 @@ type LogConfig struct {
 }
 
 var (
-	instance *Config
-	once     sync.Once
-	mu       sync.RWMutex
+	instance     *Config
+	once         sync.Once
+	mu           sync.RWMutex
+	changeHooks  []func(*Config)
+	changeHooksMu sync.Mutex
 )
 
 func Load(configPath string) (*Config, error) {
@@ -90,6 +92,7 @@ func Load(configPath string) (*Config, error) {
 			var newCfg Config
 			if err := v.Unmarshal(&newCfg); err == nil {
 				instance = &newCfg
+				go fireChangeHooks(instance)
 			}
 		})
 
@@ -118,6 +121,26 @@ func Get() *Config {
 	mu.RLock()
 	defer mu.RUnlock()
 	return instance
+}
+
+// OnConfigChange registers a callback that fires when configuration is hot-reloaded.
+// The callback receives the new Config after reload. Subsystems that need to react
+// to config changes (e.g., reconnect DB) should register here.
+func OnConfigChange(fn func(*Config)) {
+	changeHooksMu.Lock()
+	defer changeHooksMu.Unlock()
+	changeHooks = append(changeHooks, fn)
+}
+
+func fireChangeHooks(cfg *Config) {
+	changeHooksMu.Lock()
+	hooks := make([]func(*Config), len(changeHooks))
+	copy(hooks, changeHooks)
+	changeHooksMu.Unlock()
+
+	for _, hook := range hooks {
+		hook(cfg)
+	}
 }
 
 func setDefaults(v *viper.Viper) {

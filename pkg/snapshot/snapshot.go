@@ -5,10 +5,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/dynamic"
 
@@ -161,6 +163,115 @@ func (s *Snapshotter) Restore(ctx context.Context, snapshotID, sessionID string)
 		return nil, fmt.Errorf("read snapshot file: %w", err)
 	}
 	return data, nil
+}
+
+// RestoreByID searches for a snapshot by ID across all sessions and restores it.
+// This is used by the auto-rollback pathway which only has the snapshot ID.
+func (s *Snapshotter) RestoreByID(ctx context.Context, snapshotID string) error {
+	// Search all session directories for the snapshot file
+	entries, err := os.ReadDir(s.snapshotDir)
+	if err != nil {
+		return fmt.Errorf("list snapshot directory: %w", err)
+	}
+
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		snapshotPath := filepath.Join(s.snapshotDir, entry.Name(), snapshotID+".yaml")
+		if _, statErr := os.Stat(snapshotPath); statErr == nil {
+			// Found the snapshot, now apply it via dynamic client
+			data, err := os.ReadFile(snapshotPath)
+			if err != nil {
+				return fmt.Errorf("read snapshot file: %w", err)
+			}
+
+			// Parse YAML to get resource info
+			var unstructuredObj map[string]interface{}
+			if err := yaml.Unmarshal(data, &unstructuredObj); err != nil {
+				return fmt.Errorf("unmarshal snapshot YAML: %w", err)
+			}
+
+			// Extract resource metadata
+			apiVersion, _ := unstructuredObj["apiVersion"].(string)
+			kind, _ := unstructuredObj["kind"].(string)
+			metadata, _ := unstructuredObj["metadata"].(map[string]interface{})
+			namespace, _ := metadata["namespace"].(string)
+			name, _ := metadata["name"].(string)
+
+			if apiVersion == "" || kind == "" || name == "" {
+				return fmt.Errorf("invalid snapshot: missing apiVersion/kind/name")
+			}
+
+			// Resolve GVR from apiVersion + kind
+			gvr, err := resolveGVRFromAPIVersion(apiVersion, kind)
+			if err != nil {
+				return fmt.Errorf("resolve GVR from snapshot: %w", err)
+			}
+
+			// Convert map to *unstructured.Unstructured for Apply
+			usObj := &unstructured.Unstructured{Object: unstructuredObj}
+
+			// Apply the snapshot to restore the resource
+			opts := metav1.ApplyOptions{FieldManager: "lingshu-auto-rollback"}
+			_, err = s.dynamicClient.Resource(gvr).Namespace(namespace).Apply(
+				ctx, name, usObj, opts,
+			)
+			if err != nil {
+				return fmt.Errorf("apply snapshot for rollback: %w", err)
+			}
+
+			return nil
+		}
+	}
+
+	return fmt.Errorf("snapshot %s not found in any session directory", snapshotID)
+}
+
+// resolveGVRFromAPIVersion resolves GVR from apiVersion and kind strings.
+func resolveGVRFromAPIVersion(apiVersion, kind string) (schema.GroupVersionResource, error) {
+	// Map common K8s resource kinds to GVR
+	kindLower := strings.ToLower(kind)
+	plural := kindLower + "s" // simple pluralization
+
+	// Handle irregular plurals
+	switch kindLower {
+	case "pod":
+		plural = "pods"
+	case "service":
+		plural = "services"
+	case "deployment":
+		plural = "deployments"
+	case "statefulset":
+		plural = "statefulsets"
+	case "replicaset":
+		plural = "replicasets"
+	case "daemonset":
+		plural = "daemonsets"
+	case "configmap":
+		plural = "configmaps"
+	case "ingress":
+		plural = "ingresses"
+	case "namespace":
+		plural = "namespaces"
+	}
+
+	// Parse group from apiVersion
+	parts := strings.SplitN(apiVersion, "/", 2)
+	var group string
+	var version string
+	if len(parts) == 2 {
+		group = parts[0]
+		version = parts[1]
+	} else {
+		version = parts[0]
+	}
+
+	return schema.GroupVersionResource{
+		Group:    group,
+		Version:  version,
+		Resource: plural,
+	}, nil
 }
 
 func (s *Snapshotter) save(meta *SnapshotMeta, data []byte) error {

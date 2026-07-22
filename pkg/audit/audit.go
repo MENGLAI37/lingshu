@@ -2,10 +2,13 @@ package audit
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
+	"sort"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -58,6 +61,11 @@ type Manager struct {
 	droppedEvents   int64
 	flushedEvents   int64
 	fallbackEvents  int64
+
+	// Evidence hash chain: tracks the last content hash per session
+	// to build an immutable prev_hash → content_hash chain.
+	sessionLastHash map[string]string
+	hashMu          sync.RWMutex
 }
 
 var (
@@ -82,6 +90,7 @@ func Init(cfg *config.Config) (*Manager, error) {
 		batchSize:     DefaultBatchSize,
 		flushInterval: DefaultFlushInterval,
 		stopCh:        make(chan struct{}),
+		sessionLastHash: make(map[string]string),
 	}
 
 	if err := instance.Start(); err != nil {
@@ -310,6 +319,9 @@ func (m *Manager) Log(ctx context.Context, req *CreateAuditEventRequest) error {
 		Approval:       req.Approval,
 		CreatedAt:      time.Now(),
 	}
+
+	// Build immutable evidence hash chain: prev_hash → content_hash
+	event.EvidenceChainHash = m.computeChainHash(&event)
 
 	atomic.AddInt64(&m.totalEvents, 1)
 
@@ -663,6 +675,168 @@ func joinStrings(strs []string, sep string) string {
 		result += s
 	}
 	return result
+}
+
+// ===========================================================================
+// Evidence Hash Chain — immutable audit trail
+// ===========================================================================
+//
+// Every audit event is hashed with the previous event's hash, forming a
+// cryptographically verifiable chain: prev_hash → content_hash.
+// Tampering with any event breaks the chain, making the audit trail
+// immutable and compliance-ready.
+
+// computeChainHash computes the evidence chain hash for an event.
+// It combines the previous event's hash (per session) with the current
+// event's content to produce a SHA-256 hash, then stores it as the new
+// "last hash" for the session.
+func (m *Manager) computeChainHash(event *AuditEvent) *string {
+	if event == nil {
+		return nil
+	}
+
+	// Get the previous hash for this session
+	sessionKey := "global"
+	if event.SessionID != nil && *event.SessionID != "" {
+		sessionKey = *event.SessionID
+	}
+
+	m.hashMu.RLock()
+	prevHash := m.sessionLastHash[sessionKey]
+	m.hashMu.RUnlock()
+
+	// Compute content hash for this event
+	contentHash := hashEventContent(event)
+
+	// Build chain hash: SHA-256(prev_hash || content_hash)
+	hasher := sha256.New()
+	hasher.Write([]byte(prevHash))
+	hasher.Write([]byte(contentHash))
+	chainHash := hex.EncodeToString(hasher.Sum(nil))
+
+	// Store as the new "last hash" for next event in session
+	m.hashMu.Lock()
+	m.sessionLastHash[sessionKey] = chainHash
+	m.hashMu.Unlock()
+
+	return &chainHash
+}
+
+// hashEventContent computes a deterministic SHA-256 hash of the event's core content
+// (excluding metadata like timestamps and IDs that vary per write).
+func hashEventContent(event *AuditEvent) string {
+	hasher := sha256.New()
+
+	// Use stable JSON serialization for deterministic hashing
+	writeField := func(key, value string) {
+		hasher.Write([]byte(key))
+		hasher.Write([]byte{0})
+		hasher.Write([]byte(value))
+		hasher.Write([]byte{0})
+	}
+
+	writeField("action", string(event.Action))
+	writeField("cluster", event.Cluster)
+	writeField("namespace", event.Namespace)
+	writeField("risk_level", string(event.RiskLevel))
+
+	if event.ToolName != nil {
+		writeField("tool_name", *event.ToolName)
+	}
+	if event.SessionID != nil {
+		writeField("session_id", *event.SessionID)
+	}
+	if event.UserID != nil {
+		writeField("user_id", *event.UserID)
+	}
+
+	// Hash maps with sorted keys for determinism
+	writeField("target", stableJSON(event.Target))
+	writeField("pre_check", stableJSON(event.PreCheck))
+	writeField("impact_analysis", stableJSON(event.ImpactAnalysis))
+	writeField("result", stableJSON(event.Result))
+
+	if event.RollbackInfo != nil {
+		writeField("rollback_info", stableJSON(*event.RollbackInfo))
+	}
+	if event.Approval != nil {
+		writeField("approval", stableJSON(*event.Approval))
+	}
+
+	return hex.EncodeToString(hasher.Sum(nil))
+}
+
+// stableJSON produces a deterministic JSON string from a map by sorting keys.
+func stableJSON(m map[string]interface{}) string {
+	if m == nil {
+		return "{}"
+	}
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	var result string
+	result = "{"
+	for i, k := range keys {
+		if i > 0 {
+			result += ","
+		}
+		valBytes, _ := json.Marshal(m[k])
+		result += fmt.Sprintf(`"%s":%s`, k, string(valBytes))
+	}
+	result += "}"
+	return result
+}
+
+// VerifyChain verifies the integrity of an audit event chain.
+// Returns true if the chain is intact (no tampering detected).
+func (m *Manager) VerifyChain(ctx context.Context, sessionID string) (bool, error) {
+	filter := &AuditFilter{}
+	if sessionID != "" {
+		filter.SessionID = &sessionID
+	}
+	filter.Limit = MaxListLimit
+
+	result, err := m.List(ctx, filter)
+	if err != nil {
+		return false, fmt.Errorf("list events for verification: %w", err)
+	}
+
+	if len(result.Events) < 2 {
+		return true, nil // Need at least 2 events to verify chain
+	}
+
+	// Verify each event's chain hash
+	for i := 1; i < len(result.Events); i++ {
+		prev := &result.Events[i-1]
+		curr := &result.Events[i]
+
+		// Recompute: SHA-256(prev_chain_hash || curr_content_hash)
+		prevChainHash := ""
+		if prev.EvidenceChainHash != nil {
+			prevChainHash = *prev.EvidenceChainHash
+		}
+		currContentHash := hashEventContent(curr)
+
+		hasher := sha256.New()
+		hasher.Write([]byte(prevChainHash))
+		hasher.Write([]byte(currContentHash))
+		expected := hex.EncodeToString(hasher.Sum(nil))
+
+		actual := ""
+		if curr.EvidenceChainHash != nil {
+			actual = *curr.EvidenceChainHash
+		}
+
+		if expected != actual {
+			return false, fmt.Errorf("chain broken at event %d: expected hash %s, got %s",
+				curr.EventID, expected, actual)
+		}
+	}
+
+	return true, nil
 }
 
 var _ = os.File{}

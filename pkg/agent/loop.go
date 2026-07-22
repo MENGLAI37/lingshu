@@ -18,6 +18,19 @@ import (
 // Core Agent Loop Implementation
 // ===========================================================================
 
+// RAGRetriever provides semantic search over runbooks and operational knowledge.
+// Defined as interface to avoid circular imports with the rag package.
+type RAGRetriever interface {
+	Search(ctx context.Context, query string, collection string, topK int) ([]RAGDocument, error)
+}
+
+// RAGDocument represents a retrieved document from the knowledge base.
+type RAGDocument struct {
+	Content  string
+	Score    float32
+	Metadata map[string]string
+}
+
 // DefaultAgentLoop implements the core reasoning loop.
 type DefaultAgentLoop struct {
 	config          LoopConfig
@@ -32,6 +45,9 @@ type DefaultAgentLoop struct {
 	circuitBreaker  *CircuitBreaker
 	auditMgr        *audit.Manager
 	gitopsDetector  *gitops.Detector
+	ragRetriever    RAGRetriever
+	snapshotter     Snapshotter
+	sessionMgr      SessionManager
 	mu              sync.Mutex //nolint:unused
 }
 
@@ -74,6 +90,21 @@ func (al *DefaultAgentLoop) SetGitOpsDetector(detector *gitops.Detector) {
 	al.gitopsDetector = detector
 }
 
+// SetRAGRetriever wires a RAG retriever for runbook-augmented diagnosis.
+func (al *DefaultAgentLoop) SetRAGRetriever(retriever RAGRetriever) {
+	al.ragRetriever = retriever
+}
+
+// SetSnapshotter wires a snapshotter for pre-mutation snapshots and auto-rollback.
+func (al *DefaultAgentLoop) SetSnapshotter(s Snapshotter) {
+	al.snapshotter = s
+}
+
+// SetSessionManager wires a session manager for session lifecycle tracking.
+func (al *DefaultAgentLoop) SetSessionManager(mgr SessionManager) {
+	al.sessionMgr = mgr
+}
+
 // Execute runs the agent loop with the given input.
 func (al *DefaultAgentLoop) Execute(ctx context.Context, input string, handler LoopEventHandler) (*LoopResult, error) {
 	return al.ExecuteWithTools(ctx, input, nil, handler)
@@ -101,6 +132,22 @@ func (al *DefaultAgentLoop) ExecuteWithTools(ctx context.Context, input string, 
 		}
 	}
 
+	// Inject relevant runbook content via RAG (if available)
+	if al.ragRetriever != nil {
+		docs, err := al.ragRetriever.Search(ctx, input, "runbooks", 3)
+		if err == nil && len(docs) > 0 {
+			ragContext := "相关的运维知识库 (Runbook) 内容，供参考:\n\n"
+			for i, doc := range docs {
+				if doc.Content != "" {
+					ragContext += fmt.Sprintf("## Runbook %d (相关度: %.0f%%)\n%s\n\n",
+						i+1, doc.Score*100, doc.Content)
+				}
+			}
+			ragContext += "---\n请结合以上 Runbook 知识，处理用户的问题。\n"
+			al.contextManager.AddMessage(llm.RoleSystem, ragContext)
+		}
+	}
+
 	// Create loop context with timeout
 	loopCtx, cancel := al.timeoutChecker.CreateLoopContext(ctx)
 	defer cancel()
@@ -122,6 +169,17 @@ func (al *DefaultAgentLoop) ExecuteWithTools(ctx context.Context, input string, 
 	result := &LoopResult{
 		ToolResults:     []ToolExecutionResult{},
 		ThinkingHistory: []ThinkingStep{},
+	}
+
+	// Session tracking: create session if manager is wired
+	if al.sessionMgr != nil {
+		ns, _ := ctx.Value("namespace").(string)
+		cluster, _ := ctx.Value("cluster").(string)
+		if sid, err := al.sessionMgr.Create(ctx, cluster, ns); err != nil {
+			logger.Warn("Failed to create session", "error", err)
+		} else {
+			result.SessionID = sid
+		}
 	}
 
 	// Main agent loop
@@ -173,9 +231,22 @@ func (al *DefaultAgentLoop) ExecuteWithTools(ctx context.Context, input string, 
 		result.TokenUsage.OutputTokens += resp.Usage.OutputTokens
 		result.TokenUsage.TotalTokens += resp.Usage.TotalTokens
 
-		// Check context overflow
-		if result.TokenUsage.TotalTokens > al.config.MaxTokens {
-			err := al.contextManager.TrimContext(al.config.MaxTokens - resp.Usage.OutputTokens)
+		// Check context overflow: use current context token estimate
+		// (the size of the next request), not cumulative usage.
+		// Reserve room for the model's max output tokens.
+		currentTokens := al.contextManager.GetTokenCount()
+		estimatedNextRequest := currentTokens + resp.Usage.OutputTokens
+		if estimatedNextRequest > al.config.MaxTokens {
+			targetTokens := al.config.MaxTokens - resp.Usage.OutputTokens
+			if targetTokens < al.config.MaxTokens/4 {
+				targetTokens = al.config.MaxTokens / 4 // keep at least 25% of window
+			}
+			logger.Warn("Context window near limit, trimming",
+				"current_tokens", currentTokens,
+				"max_tokens", al.config.MaxTokens,
+				"target_after_trim", targetTokens,
+			)
+			err := al.contextManager.TrimContext(targetTokens)
 			if err != nil {
 				result.State = StateError
 				result.Error = NewLoopError(ErrCodeContextOverflow, "context overflow", PhaseThink, err)
@@ -260,6 +331,19 @@ func (al *DefaultAgentLoop) ExecuteWithTools(ctx context.Context, input string, 
 		for _, execResult := range execResults {
 			resultStr := al.formatToolResult(execResult)
 			al.contextManager.AddToolResult(execResult.ToolName, resultStr, execResult.ToolCallID)
+
+				// Session tracking: record tool call
+				if al.sessionMgr != nil && result.SessionID != "" {
+					riskLevel := "L0"
+					if execResult.Result != nil {
+						riskLevel = string(execResult.Result.RiskLevel)
+					}
+					if recErr := al.sessionMgr.AddToolCall(ctx, result.SessionID,
+						execResult.ToolName, riskLevel, execResult.Arguments, resultStr); recErr != nil {
+						logger.Warn("Failed to record tool call in session", "error", recErr)
+					}
+				}
+
 		}
 
 		// Record iteration for dead-loop detection
@@ -295,6 +379,17 @@ func (al *DefaultAgentLoop) ExecuteWithTools(ctx context.Context, input string, 
 	}
 
 	result.TotalDuration = time.Since(state.startTime)
+
+	// Session tracking: record final costs and complete
+	if al.sessionMgr != nil && result.SessionID != "" {
+		if tcErr := al.sessionMgr.AddCost(ctx, result.SessionID,
+			result.TokenUsage.InputTokens, result.TokenUsage.OutputTokens); tcErr != nil {
+			logger.Warn("Failed to record session cost", "error", tcErr)
+		}
+		if compErr := al.sessionMgr.Complete(ctx, result.SessionID, result.FinalResponse); compErr != nil {
+			logger.Warn("Failed to complete session", "error", compErr)
+		}
+	}
 
 	if panicErr != nil {
 		result.State = StateError
@@ -418,9 +513,51 @@ func (al *DefaultAgentLoop) executeTools(ctx context.Context, toolCalls []Parsed
 			}
 		}
 
+		// Take pre-mutation snapshot for L2+ operations
+		tool, _ := al.toolRegistry.GetTool(tc.Name)
+		var snapMeta *SnapshotMeta
+		if al.config.AutoSnapshot && al.snapshotter != nil && tool != nil &&
+			(tool.RiskLevel() == tools.RiskLevelL2 || tool.RiskLevel() == tools.RiskLevelL3) {
+			ns, _ := tc.Arguments["namespace"].(string)
+			name, _ := tc.Arguments["name"].(string)
+			rt, _ := tc.Arguments["resource_type"].(string)
+			if ns != "" && name != "" && rt != "" {
+				snap, snapErr := al.snapshotter.Snapshot(ctx, rt, ns, name)
+				if snapErr == nil {
+					snapMeta = &snap
+					logger.Info("Pre-mutation snapshot captured",
+						"snapshot_id", snapMeta.ID,
+						"resource", fmt.Sprintf("%s/%s/%s", ns, rt, name),
+					)
+				}
+			}
+		}
+
 		result := al.executeSingleTool(ctx, tc)
 		results = append(results, result)
 		al.emitEvent(handler, "tool_result", state.state, state.currentPhase, result)
+
+		// Auto-rollback: if L2+ operation failed with a snapshot available, restore
+		if result.Error != nil && al.config.AutoRollback && snapMeta != nil {
+			logger.Warn("L2+ operation failed, attempting auto-rollback",
+				"tool", tc.Name,
+				"snapshot_id", snapMeta.ID,
+				"error", result.Error,
+			)
+			if rollbackErr := al.snapshotter.Restore(ctx, snapMeta.ID); rollbackErr != nil {
+				logger.Error("Auto-rollback failed",
+					"snapshot_id", snapMeta.ID,
+					"error", rollbackErr,
+				)
+			} else {
+				logger.Info("Auto-rollback succeeded via snapshot",
+					"snapshot_id", snapMeta.ID,
+				)
+				al.emitEvent(handler, "thinking", state.state, state.currentPhase,
+					fmt.Sprintf("操作失败，已自动回滚到快照 %s (资源: %s/%s/%s)",
+						snapMeta.ID, snapMeta.Namespace, snapMeta.ResourceType, snapMeta.Name))
+			}
+		}
 	}
 
 	return results

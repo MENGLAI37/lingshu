@@ -105,6 +105,8 @@ type LoopConfig struct {
 	DryRun               bool              // If true, skip L1+ write operations (preview mode)
 	MaxL2Operations      int               // Maximum L2+ operations per session (default: 5, 0=unlimited)
 	MaxConsecutiveWrite  int               // Max consecutive write ops before forcing L0 check (default: 3)
+	AutoSnapshot         bool              // Take snapshot before L2+ operations for auto-rollback
+	AutoRollback         bool              // Automatically rollback on L2+ operation failure
 }
 
 // DefaultLoopConfig returns the default loop configuration.
@@ -118,11 +120,14 @@ func DefaultLoopConfig() LoopConfig {
 		MaxParallelTools:    5,
 		MaxL2Operations:     5,
 		MaxConsecutiveWrite: 3,
+		AutoSnapshot:        true,
+		AutoRollback:        true,
 	}
 }
 
 // LoopResult represents the final result of the agent loop.
 type LoopResult struct {
+	SessionID       string
 	State           LoopState
 	FinalResponse   string
 	ToolResults     []ToolExecutionResult
@@ -172,6 +177,32 @@ type RiskEvaluation struct {
 	AffectedResources []string
 	EnvironmentWeight int // Additional weight based on environment (prod=+2, kube-system=+3)
 	ToolRiskLevel     tools.ToolRiskLevel
+}
+
+// Snapshotter captures resource state before mutations for rollback.
+// SessionManager provides session lifecycle management for the agent loop.
+// Defined as interface to avoid circular imports with the session package.
+type SessionManager interface {
+	Create(ctx context.Context, cluster, namespace string) (sessionID string, err error)
+	AddToolCall(ctx context.Context, sessionID, toolName, riskLevel string, args map[string]any, result string) error
+	AddCost(ctx context.Context, sessionID string, inputTokens, outputTokens int64) error
+	Complete(ctx context.Context, sessionID, finalResponse string) error
+	CheckTokenBudget(ctx context.Context, sessionID string, tokensToUse int64) (bool, error)
+}
+
+type Snapshotter interface {
+	Snapshot(ctx context.Context, resourceType, namespace, name string) (SnapshotMeta, error)
+	Restore(ctx context.Context, snapshotID string) error
+}
+
+// SnapshotMeta describes a resource snapshot.
+type SnapshotMeta struct {
+	ID           string
+	SessionID    string
+	ResourceKey  string
+	ResourceType string
+	Namespace    string
+	Name         string
 }
 
 // ContextManager manages conversation context.

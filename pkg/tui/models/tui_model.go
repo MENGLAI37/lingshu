@@ -11,10 +11,16 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/lingshu/lingshu/pkg/agent"
+	"github.com/lingshu/lingshu/pkg/audit"
 	"github.com/lingshu/lingshu/pkg/config"
+	"github.com/lingshu/lingshu/pkg/db"
+	"github.com/lingshu/lingshu/pkg/gitops"
 	"github.com/lingshu/lingshu/pkg/k8s"
 	"github.com/lingshu/lingshu/pkg/llm"
+	"github.com/lingshu/lingshu/pkg/rag"
 	"github.com/lingshu/lingshu/pkg/security"
+	"github.com/lingshu/lingshu/pkg/session"
+	"github.com/lingshu/lingshu/pkg/snapshot"
 	"github.com/lingshu/lingshu/pkg/tools"
 	"github.com/lingshu/lingshu/pkg/tools/l0"
 	"github.com/lingshu/lingshu/pkg/tools/l1"
@@ -22,6 +28,8 @@ import (
 	"github.com/lingshu/lingshu/pkg/tui/components"
 	"github.com/lingshu/lingshu/pkg/tui/styles"
 	"github.com/lingshu/lingshu/pkg/tui/theme"
+	"github.com/lingshu/lingshu/pkg/workflow"
+	metricsv "k8s.io/metrics/pkg/client/clientset/versioned"
 )
 
 type Page string
@@ -165,25 +173,36 @@ func (m *TUIModel) initAgentLoop() {
 
 	// Initialize tool registry with K8s tools
 	toolRegistry := agent.NewDefaultToolRegistry()
+	var gitopsDetector *gitops.Detector
 	if m.k8sClient != nil {
 		// Get the default context clientset
 		clientset, err := m.k8sClient.GetClientSet(context.Background(), "")
 		if err != nil {
 			fmt.Printf("Warning: Failed to get clientset: %v\n", err)
 		} else {
+				// Build metrics client for k8s_top
+				var metricsClient *metricsv.Clientset
+				if restCfg, restErr := m.k8sClient.GetRestConfig(context.Background(), ""); restErr == nil && restCfg != nil {
+					if mc, mcErr := metricsv.NewForConfig(restCfg); mcErr == nil {
+						metricsClient = mc
+					}
+				}
+
 			// Register L0 tools (read-only)
 			_ = toolRegistry.RegisterTool(l0.NewGetTool(clientset))
 			_ = toolRegistry.RegisterTool(l0.NewDescribeTool(clientset))
 			_ = toolRegistry.RegisterTool(l0.NewLogsTool(clientset))
 			_ = toolRegistry.RegisterTool(l0.NewEventsTool(clientset))
 			// Register L1 tools (safe write)
-			_ = toolRegistry.RegisterTool(l1.NewTopTool(clientset, nil))
+			_ = toolRegistry.RegisterTool(l1.NewTopTool(clientset, metricsClient))
 			_ = toolRegistry.RegisterTool(l1.NewStatusTool(clientset))
 			// Register L2 tools (moderate risk)
 			_ = toolRegistry.RegisterTool(l2.NewScaleTool(clientset))
 			_ = toolRegistry.RegisterTool(l2.NewRestartTool(clientset))
 			_ = toolRegistry.RegisterTool(l2.NewRolloutTool(clientset))
 			_ = toolRegistry.RegisterTool(l2.NewPatchTool(clientset))
+				// Build GitOps detector
+				gitopsDetector = gitops.NewDetector(clientset)
 		}
 	}
 
@@ -209,6 +228,47 @@ func (m *TUIModel) initAgentLoop() {
 		toolRegistry,
 		securityGateway,
 	)
+		if gitopsDetector != nil {
+			m.agentLoop.SetGitOpsDetector(gitopsDetector)
+		}
+
+		// Optional module wiring
+		if m.k8sClient != nil {
+			// Snapshot + Auto-Rollback
+			if dynamicClient, err := m.k8sClient.GetDynamicClient(context.Background(), ""); err == nil && dynamicClient != nil {
+				s := snapshot.NewSnapshotter(dynamicClient, "")
+				m.agentLoop.SetSnapshotter(snapshot.NewAgentSnapshotterAdapter(s))
+			}
+		}
+
+		// RAG / Runbook (best-effort)
+		chromaClient := rag.NewChromaDBClient()
+		embedder := rag.NewSimpleEmbeddingProvider(384)
+		r := rag.NewRetriever(chromaClient, embedder, rag.WithDefaultK(3), rag.WithMinScore(0.5))
+		m.agentLoop.SetRAGRetriever(rag.NewAgentRetrieverAdapter(rag.NewRunbookRAG(r)))
+
+		// Workflow engine
+		wfEngine := workflow.NewDefaultWorkFlowEngine(toolRegistry)
+		for _, wf := range workflow.GetBuiltInWorkFlows() {
+			_ = wfEngine.RegisterWorkFlow(wf)
+		}
+		_ = toolRegistry.RegisterTool(workflow.NewWorkFlowTool(wfEngine))
+
+		// Audit manager (best-effort)
+		if cfg != nil {
+			if auditMgr, aErr := audit.Init(cfg); aErr == nil {
+				m.agentLoop.SetAuditManager(auditMgr)
+			}
+		}
+
+		// Session tracking (best-effort)
+		if cfg != nil {
+			if _, dbErr := db.Init(&cfg.Database); dbErr == nil {
+				if sessMgr, sErr := session.Init(cfg); sErr == nil {
+					m.agentLoop.SetSessionManager(&tuiSessionAdapter{mgr: sessMgr})
+				}
+			}
+		}
 }
 
 // createLLMRouter creates an LLM router from config or environment
@@ -913,7 +973,11 @@ func (m *TUIModel) handleUserInput(input string) {
 
 // runAgentLoop executes the real Agent Loop for user input
 func (m *TUIModel) runAgentLoop(userInput string) {
-	ctx := context.Background()
+	ctx := context.WithValue(context.Background(), "environment", m.environment)
+	ctx = context.WithValue(ctx, "cluster", m.cluster)
+	ctx = context.WithValue(ctx, "namespace", m.namespace)
+	ctx = context.WithValue(ctx, "on_call", true)
+	ctx = context.WithValue(ctx, "change_window", true)
 
 	// finalResponseContent tracks whether the final response text has already
 	// been emitted via thinking events (to avoid duplication).
@@ -1292,4 +1356,48 @@ func (m *TUIModel) SetTheme(themeName theme.ThemeName) {
 func (m *TUIModel) reinitAgentLoop() {
 	m.agentLoop = nil
 	m.initAgentLoop()
+}
+
+// tuiSessionAdapter bridges session.Manager to agent.SessionManager interface.
+type tuiSessionAdapter struct {
+	mgr *session.Manager
+}
+
+func (a *tuiSessionAdapter) Create(ctx context.Context, cluster, namespace string) (string, error) {
+	sess, err := a.mgr.Create(ctx, &session.CreateSessionRequest{
+		Cluster:   cluster,
+		Namespace: namespace,
+	})
+	if err != nil {
+		return "", err
+	}
+	return sess.SessionID, nil
+}
+
+func (a *tuiSessionAdapter) AddToolCall(ctx context.Context, sessionID, toolName, riskLevel string, args map[string]any, result string) error {
+	toolCall := map[string]interface{}{
+		"tool_name":  toolName,
+		"risk_level": riskLevel,
+		"arguments":  args,
+		"result":     result,
+	}
+	return a.mgr.AppendToolCall(ctx, sessionID, toolCall)
+}
+
+func (a *tuiSessionAdapter) AddCost(ctx context.Context, sessionID string, inputTokens, outputTokens int64) error {
+	return a.mgr.AddCost(ctx, sessionID, 0, inputTokens+outputTokens)
+}
+
+func (a *tuiSessionAdapter) Complete(ctx context.Context, sessionID, finalResponse string) error {
+	status := session.StatusCompleted
+	meta := map[string]interface{}{"final_response": finalResponse}
+	_, err := a.mgr.Update(ctx, sessionID, &session.UpdateSessionRequest{
+		Status:   &status,
+		Metadata: &meta,
+	})
+	return err
+}
+
+func (a *tuiSessionAdapter) CheckTokenBudget(ctx context.Context, sessionID string, tokensToUse int64) (bool, error) {
+	return a.mgr.CheckTokenBudget(ctx, sessionID, tokensToUse)
 }

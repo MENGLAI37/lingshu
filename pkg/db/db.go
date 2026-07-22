@@ -40,6 +40,7 @@ func Init(cfg *config.DBConfig) (*Database, error) {
 			Fallback:    fallback,
 			useFallback: true,
 		}
+		_ = instance.runMigrations()
 		return instance, nil
 	}
 
@@ -50,6 +51,7 @@ func Init(cfg *config.DBConfig) (*Database, error) {
 		Fallback:  fallback,
 	}
 
+	_ = instance.runMigrations()
 	return instance, nil
 }
 
