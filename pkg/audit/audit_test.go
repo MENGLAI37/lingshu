@@ -516,7 +516,7 @@ func TestAuditReportGeneration(t *testing.T) {
 	// Verify HTML report renders
 	htmlReport := report.toHTML()
 	assert.Contains(t, htmlReport, "<!DOCTYPE html>")
-	assert.Contains(t, htmlReport, "运行摘要")
+	assert.Contains(t, htmlReport, "执行摘要")
 }
 
 func TestAuditReportFormats(t *testing.T) {
