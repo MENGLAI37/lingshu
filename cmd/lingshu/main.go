@@ -749,7 +749,7 @@ func runReport(format, period, cluster, namespace, outputPath string, verify boo
 		fmt.Printf("  ✗ 审计管理器初始化失败: %v\n", err)
 		os.Exit(1)
 	}
-	defer auditMgr.Close()
+	defer func() { _ = auditMgr.Close() }()
 	fmt.Printf("  ✓ 审计事件数: %d (队列: %d)\n",
 		auditMgr.GetStatsInfo()["flushed_events"],
 		auditMgr.GetQueueSize())
@@ -829,7 +829,7 @@ func parsePeriod(period string) (*time.Time, *time.Time) {
 	if len(period) == 7 && period[4] == '-' {
 		year := 0
 		month := 0
-		fmt.Sscanf(period, "%d-%d", &year, &month)
+		_, _ = fmt.Sscanf(period, "%d-%d", &year, &month)
 		if year > 0 && month >= 1 && month <= 12 {
 			start := time.Date(year, time.Month(month), 1, 0, 0, 0, 0, time.UTC)
 			end := start.AddDate(0, 1, 0).Add(-time.Second)

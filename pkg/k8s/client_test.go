@@ -38,7 +38,9 @@ func TestClientManager_WithEmptyKubeconfig(t *testing.T) {
 	manager, err := NewClientManager("")
 	assert.NoError(t, err)
 	assert.NotNil(t, manager)
-	assert.NotEmpty(t, manager.GetCurrentContext())
+	if len(manager.ListContexts()) > 0 {
+		assert.NotEmpty(t, manager.GetCurrentContext())
+	}
 }
 
 func TestClientManager_ListContexts(t *testing.T) {

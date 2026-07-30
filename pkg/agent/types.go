@@ -179,7 +179,6 @@ type RiskEvaluation struct {
 	ToolRiskLevel     tools.ToolRiskLevel
 }
 
-// Snapshotter captures resource state before mutations for rollback.
 // SessionManager provides session lifecycle management for the agent loop.
 // Defined as interface to avoid circular imports with the session package.
 type SessionManager interface {
@@ -190,6 +189,7 @@ type SessionManager interface {
 	CheckTokenBudget(ctx context.Context, sessionID string, tokensToUse int64) (bool, error)
 }
 
+// Snapshotter captures resource state before mutations for rollback.
 type Snapshotter interface {
 	Snapshot(ctx context.Context, resourceType, namespace, name string) (SnapshotMeta, error)
 	Restore(ctx context.Context, snapshotID string) error

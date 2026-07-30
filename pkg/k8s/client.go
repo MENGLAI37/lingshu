@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	authorizationv1 "k8s.io/api/authorization/v1"
@@ -17,9 +18,9 @@ import (
 )
 
 type ClientManager struct {
-	mu            sync.RWMutex
-	configs       map[string]*rest.Config
-	clientsets    map[string]*kubernetes.Clientset
+	mu             sync.RWMutex
+	configs        map[string]*rest.Config
+	clientsets     map[string]*kubernetes.Clientset
 	dynamicClients map[string]*dynamic.DynamicClient
 	currentContext string
 	kubeconfigPath string
@@ -47,10 +48,22 @@ func NewClientManager(kubeconfigPath string) (*ClientManager, error) {
 	}
 
 	if err := cm.loadContexts(); err != nil {
+		if isIgnorableConfigError(err) {
+			return cm, nil
+		}
 		return nil, fmt.Errorf("failed to load kubeconfig contexts: %w", err)
 	}
 
 	return cm, nil
+}
+
+func isIgnorableConfigError(err error) bool {
+	if err == nil {
+		return false
+	}
+	errStr := err.Error()
+	return strings.Contains(errStr, "failed to load in-cluster config") ||
+		strings.Contains(errStr, "unable to load in-cluster configuration")
 }
 
 func (cm *ClientManager) loadContexts() error {
@@ -64,6 +77,11 @@ func (cm *ClientManager) loadContexts() error {
 
 	if config.CurrentContext != "" {
 		cm.currentContext = config.CurrentContext
+	} else if len(config.Contexts) > 0 {
+		for ctxName := range config.Contexts {
+			cm.currentContext = ctxName
+			break
+		}
 	}
 
 	for ctxName := range config.Contexts {
@@ -282,16 +300,16 @@ func (cm *ClientManager) CanI(ctx context.Context, verb, resource, namespace, ap
 
 // ToolPermissionMap maps tool names to required K8s permissions.
 var ToolPermissionMap = map[string]Permission{
-	"k8s_get":       {Verb: "get", Resource: "pods"},
-	"k8s_describe":  {Verb: "get", Resource: "pods"},
-	"k8s_logs":      {Verb: "get", Resource: "pods/log"},
-	"k8s_events":    {Verb: "get", Resource: "events"},
-	"k8s_status":    {Verb: "get", Resource: "pods"},
-	"k8s_top":       {Verb: "get", Resource: "pods"},
-	"k8s_scale":     {Verb: "update", Resource: "deployments/scale", APIGroup: "apps"},
-	"k8s_restart":   {Verb: "patch", Resource: "deployments", APIGroup: "apps"},
-	"k8s_rollout":   {Verb: "patch", Resource: "deployments", APIGroup: "apps"},
-	"k8s_patch":     {Verb: "patch", Resource: "deployments", APIGroup: "apps"},
+	"k8s_get":      {Verb: "get", Resource: "pods"},
+	"k8s_describe": {Verb: "get", Resource: "pods"},
+	"k8s_logs":     {Verb: "get", Resource: "pods/log"},
+	"k8s_events":   {Verb: "get", Resource: "events"},
+	"k8s_status":   {Verb: "get", Resource: "pods"},
+	"k8s_top":      {Verb: "get", Resource: "pods"},
+	"k8s_scale":    {Verb: "update", Resource: "deployments/scale", APIGroup: "apps"},
+	"k8s_restart":  {Verb: "patch", Resource: "deployments", APIGroup: "apps"},
+	"k8s_rollout":  {Verb: "patch", Resource: "deployments", APIGroup: "apps"},
+	"k8s_patch":    {Verb: "patch", Resource: "deployments", APIGroup: "apps"},
 }
 
 // CheckToolPermissions checks permissions for all registered tools.

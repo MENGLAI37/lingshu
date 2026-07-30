@@ -467,7 +467,7 @@ func TestAuditReportGeneration(t *testing.T) {
 			Cluster:   "test-cluster",
 			Namespace: "test-ns",
 			Action:    ActionToolCall,
-			RiskLevel: RiskLevel(i % 2), // L0/L1 alternating
+			RiskLevel: []RiskLevel{RiskL0, RiskL1}[i%2], // L0/L1 alternating
 			Result:    map[string]interface{}{"index": i},
 		}
 		_ = manager.Log(ctx, req)

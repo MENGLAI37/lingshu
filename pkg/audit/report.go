@@ -327,7 +327,7 @@ func (r *AuditReport) toJSON() string {
 	sb.WriteString("{\n")
 	sb.WriteString(fmt.Sprintf("  \"generated_at\": %q,\n", r.GeneratedAt.Format(time.RFC3339)))
 	sb.WriteString(fmt.Sprintf("  \"period\": %q,\n", r.Period))
-	sb.WriteString(fmt.Sprintf("  \"summary\": {\n"))
+	sb.WriteString("  \"summary\": {\n")
 	sb.WriteString(fmt.Sprintf("    \"total_events\": %d,\n", r.Summary.TotalEvents))
 	sb.WriteString(fmt.Sprintf("    \"total_sessions\": %d,\n", r.Summary.TotalSessions))
 	sb.WriteString(fmt.Sprintf("    \"l2_plus_operations\": %d,\n", r.Summary.L2PlusOperations))
