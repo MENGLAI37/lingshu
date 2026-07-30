@@ -4,12 +4,12 @@
 -- Version: 000001
 -- ============================================================
 
-CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+-- gen_random_uuid() is built-in on PostgreSQL 13+
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 
 -- 1. 用户与多租户
 CREATE TABLE users (
-    user_id         UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     username        VARCHAR(64) NOT NULL UNIQUE,
     email           VARCHAR(255) NOT NULL UNIQUE,
     role            VARCHAR(16) NOT NULL DEFAULT 'viewer' CHECK (role IN ('admin', 'operator', 'viewer')),
@@ -21,7 +21,7 @@ CREATE INDEX idx_users_username ON users(username);
 CREATE INDEX idx_users_email ON users(email);
 
 CREATE TABLE teams (
-    team_id             UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    team_id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     name                VARCHAR(128) NOT NULL UNIQUE,
     allowed_namespaces  JSONB NOT NULL DEFAULT '[]',
     denied_namespaces   JSONB NOT NULL DEFAULT '[]',
@@ -31,7 +31,7 @@ CREATE TABLE teams (
 );
 
 CREATE TABLE team_memberships (
-    membership_id   UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    membership_id   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id         UUID NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
     team_id         UUID NOT NULL REFERENCES teams(team_id) ON DELETE CASCADE,
     role            VARCHAR(16) NOT NULL DEFAULT 'member' CHECK (role IN ('admin', 'member', 'viewer')),
@@ -42,7 +42,7 @@ CREATE INDEX idx_team_memberships_team ON team_memberships(team_id);
 CREATE INDEX idx_team_memberships_user ON team_memberships(user_id);
 
 CREATE TABLE namespace_acls (
-    acl_id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    acl_id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     team_id             UUID NOT NULL REFERENCES teams(team_id) ON DELETE CASCADE,
     namespace_pattern   VARCHAR(255) NOT NULL,
     access_type         VARCHAR(8) NOT NULL CHECK (access_type IN ('allow', 'deny')),
@@ -53,7 +53,7 @@ CREATE INDEX idx_namespace_acls_team ON namespace_acls(team_id);
 
 -- 2. 会话管理
 CREATE TABLE sessions (
-    session_id          UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    session_id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     parent_session_id   UUID NULL REFERENCES sessions(session_id),
     cluster             VARCHAR(128) NOT NULL DEFAULT 'default',
     namespace           VARCHAR(128) NOT NULL DEFAULT 'default',

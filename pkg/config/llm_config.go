@@ -170,6 +170,44 @@ func GetCurrentProviderConfig() *llm.ProviderConfig {
 	return nil
 }
 
+// SetCurrentProvider switches the active LLM provider by name.
+func SetCurrentProvider(name string) error {
+	llmConfigMu.Lock()
+	defer llmConfigMu.Unlock()
+
+	if llmConfigInstance == nil {
+		return fmt.Errorf("no LLM config loaded")
+	}
+
+	found := false
+	for _, p := range llmConfigInstance.Providers {
+		if p.Name == name {
+			found = true
+			break
+		}
+	}
+	if !found {
+		return fmt.Errorf("provider %q not found", name)
+	}
+
+	llmConfigInstance.CurrentProvider = name
+	return saveLLMConfigLocked(llmConfigInstance)
+}
+
+// ListProviders returns the names and models of all configured providers.
+func ListProviders() []string {
+	cfg := GetLLMConfig()
+	names := make([]string, len(cfg.Providers))
+	for i, p := range cfg.Providers {
+		marker := " "
+		if p.Name == cfg.CurrentProvider {
+			marker = "*"
+		}
+		names[i] = fmt.Sprintf("%s %s (%s)", marker, p.Name, p.Model)
+	}
+	return names
+}
+
 func AddProvider(cfg llm.ProviderConfig) error {
 	current := GetLLMConfig()
 	for i, p := range current.Providers {
@@ -205,17 +243,6 @@ func RemoveProvider(name string) error {
 		}
 	}
 	return SaveLLMConfig(current)
-}
-
-func SetCurrentProvider(name string) error {
-	current := GetLLMConfig()
-	for _, p := range current.Providers {
-		if p.Name == name {
-			current.CurrentProvider = name
-			return SaveLLMConfig(current)
-		}
-	}
-	return nil
 }
 
 func getConfigPath() (string, error) {

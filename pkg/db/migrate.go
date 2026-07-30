@@ -25,6 +25,13 @@ func (d *Database) runMigrations() error {
 		return fmt.Errorf("no database connection available for migrations")
 	}
 
+	// SQLite fallback does not support PostgreSQL-specific DDL (extensions, PL/pgSQL, triggers, JSONB, etc.).
+	// The application already handles missing tables gracefully via file-based fallbacks.
+	if d.IsFallback() {
+		logger.Info("SQLite fallback active, skipping PostgreSQL migrations (file-based storage will be used)")
+		return nil
+	}
+
 	// Find migration directory
 	migrationDir := findMigrationDir()
 	if migrationDir == "" {
@@ -123,12 +130,14 @@ func findMigrationDir() string {
 }
 
 // splitSQLStatements splits SQL text into individual statements by semicolons,
-// ignoring semicolons inside quotes or comments.
+// ignoring semicolons inside quotes, dollar-quoted strings ($$...$$), or comments.
 func splitSQLStatements(sql string) []string {
 	var statements []string
 	var current strings.Builder
 	inSingleQuote := false
 	inDoubleQuote := false
+	inDollarQuote := false
+	dollarTag := "" // the tag between $ markers, e.g. "func$" or empty for $$
 	inLineComment := false
 	inBlockComment := false
 
@@ -139,8 +148,47 @@ func splitSQLStatements(sql string) []string {
 			next = sql[i+1]
 		}
 
-		// Handle comments
-		if !inSingleQuote && !inDoubleQuote {
+		// Handle dollar-quoted strings (PostgreSQL $$...$$ or $tag$...$tag$)
+		// Only check when not already inside single/double quotes or comments
+		if !inSingleQuote && !inDoubleQuote && !inLineComment && !inBlockComment {
+			if ch == '$' && !inDollarQuote {
+				// Check if this is a dollar-quote start: $tag$ or just $$
+				// Scan forward to find the matching closing $
+				j := i + 1
+				tag := ""
+				for j < len(sql) && sql[j] != '$' {
+					tag += string(sql[j])
+					j++
+				}
+				if j < len(sql) {
+					// Found closing $, this is a dollar quote
+					inDollarQuote = true
+					dollarTag = tag
+					current.WriteString("$" + tag + "$")
+					i = j
+					continue
+				}
+			} else if ch == '$' && inDollarQuote {
+				// Potentially closing a dollar quote
+				// Check if it matches: $tag$ (where tag matches the opening tag)
+				j := i + 1
+				tag := ""
+				for j < len(sql) && sql[j] != '$' {
+					tag += string(sql[j])
+					j++
+				}
+				if j < len(sql) && tag == dollarTag {
+					inDollarQuote = false
+					dollarTag = ""
+					current.WriteString("$" + tag + "$")
+					i = j
+					continue
+				}
+			}
+		}
+
+		// Handle comments (only outside quotes)
+		if !inSingleQuote && !inDoubleQuote && !inDollarQuote {
 			if !inBlockComment && ch == '-' && next == '-' {
 				inLineComment = true
 				current.WriteByte(ch)
@@ -175,15 +223,15 @@ func splitSQLStatements(sql string) []string {
 			}
 		}
 
-		// Handle quotes
-		if ch == '\'' && !inDoubleQuote {
+		// Handle single/double quotes
+		if ch == '\'' && !inDoubleQuote && !inDollarQuote {
 			inSingleQuote = !inSingleQuote
 		}
-		if ch == '"' && !inSingleQuote {
+		if ch == '"' && !inSingleQuote && !inDollarQuote {
 			inDoubleQuote = !inDoubleQuote
 		}
 
-		if ch == ';' && !inSingleQuote && !inDoubleQuote && !inLineComment && !inBlockComment {
+		if ch == ';' && !inSingleQuote && !inDoubleQuote && !inDollarQuote && !inLineComment && !inBlockComment {
 			statements = append(statements, current.String())
 			current.Reset()
 			continue

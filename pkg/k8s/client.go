@@ -34,9 +34,16 @@ type ClusterInfo struct {
 
 func NewClientManager(kubeconfigPath string) (*ClientManager, error) {
 	if kubeconfigPath == "" {
-		kubeconfigPath = filepath.Join(os.Getenv("HOME"), ".kube", "config")
+		// KUBECONFIG env takes priority
 		if envKubeconfig := os.Getenv("KUBECONFIG"); envKubeconfig != "" {
 			kubeconfigPath = envKubeconfig
+		} else if home := os.Getenv("HOME"); home != "" {
+			kubeconfigPath = filepath.Join(home, ".kube", "config")
+		} else if userProfile := os.Getenv("USERPROFILE"); userProfile != "" {
+			// Windows fallback: USERPROFILE instead of HOME
+			kubeconfigPath = filepath.Join(userProfile, ".kube", "config")
+		} else {
+			kubeconfigPath = filepath.Join(".kube", "config")
 		}
 	}
 

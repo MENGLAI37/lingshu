@@ -40,6 +40,7 @@ var Version = "v0.1.0"
 
 func main() {
 	noTUI := flag.Bool("no-tui", false, "Headless mode: ask a question and get an answer")
+	serveMode := flag.Bool("serve", false, "Daemon mode: start alert webhook server + autonomous engine for continuous ops")
 	autoDemo := flag.Bool("auto-demo", false, "Autonomous ops demo: simulated alert triggers auto diagnosis")
 	dryRun := flag.Bool("dry-run", false, "Preview mode: diagnose + plan but skip all write operations (L1+)")
 	yesMode := flag.Bool("yes", false, "Auto-confirm L0-L2 operations (for CI/CD pipelines)")
@@ -76,6 +77,11 @@ func main() {
 
 	if *importMode {
 		runImport(*importFile)
+		return
+	}
+
+	if *serveMode {
+		runServe(*dryRun, *yesMode)
 		return
 	}
 

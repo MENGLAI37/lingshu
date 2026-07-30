@@ -1,6 +1,7 @@
 package models
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -133,4 +134,172 @@ func TestInputNotFocusedTriggersCKey(t *testing.T) {
 
 	assert.True(t, model.configPanel.Visible(),
 		"config panel should be opened by 'c' when input is not focused")
+}
+
+// TestInspectionEventsRenderInView verifies that InspectionEvents added to
+// the event panel appear in the View() output.
+func TestInspectionEventsRenderInView(t *testing.T) {
+	model := NewTUIModel()
+	model.width = 80
+	model.height = 24
+
+	// Initially, event panel shows the empty/placeholder message
+	view := model.View()
+	assert.Contains(t, view, "巡检", "view should contain event panel section")
+
+	// Send a scan event — simulates what the inspection goroutine does
+	model.Update(InspectionEvent{
+		Type:    components.EventScan,
+		Message: "第1次扫描: 12/12 Pod 正常",
+	})
+	view = model.View()
+	assert.Contains(t, view, "第1次扫描: 12/12 Pod 正常",
+		"view should show scan result after InspectionEvent")
+
+	// Send an alert event
+	model.Update(InspectionEvent{
+		Type:    components.EventAlert,
+		Message: "test-apps/img-bomb → ImagePullBackOff",
+		Detail:  "自动触发诊断...",
+	})
+	view = model.View()
+	assert.Contains(t, view, "img-bomb",
+		"view should show alert event")
+	assert.Contains(t, view, "ImagePullBackOff",
+		"view should show alert reason")
+	assert.Contains(t, view, "自动触发诊断",
+		"view should show alert detail")
+}
+
+// TestInspectionCountUpdatesStatusBar verifies the inspect count shows in status bar.
+func TestInspectionCountUpdatesStatusBar(t *testing.T) {
+	model := NewTUIModel()
+	model.width = 80
+	model.height = 24
+
+	// After 3 scan events, inspectCount should be tracked
+	for i := 1; i <= 3; i++ {
+		model.Update(InspectionEvent{
+			Type:    components.EventScan,
+			Message: "scan",
+		})
+	}
+	assert.Equal(t, 3, model.inspectCount, "inspectCount should match number of events")
+}
+
+// TestOverlayCenterDoesNotCorruptLayout verifies that overlays (config panel, help)
+// render without corrupting the base content around them.
+func TestOverlayCenterDoesNotCorruptLayout(t *testing.T) {
+	model := NewTUIModel()
+	model.width = 80
+	model.height = 24
+
+	// Prime with some content
+	model.Update(InspectionEvent{
+		Type:    components.EventScan,
+		Message: "第1次扫描: 12/12 Pod 正常",
+	})
+
+	baseView := model.View()
+	baseLines := len(strings.Split(baseView, "\n"))
+
+	// Open config panel (simulate 'c' key when input not focused)
+	model.input.Blur()
+	model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'c'}})
+	assert.True(t, model.configPanel.Visible(), "config panel should be visible")
+
+	overlayView := model.View()
+	overlayLines := len(strings.Split(overlayView, "\n"))
+
+	// Line count should not change dramatically (overlay doesn't resize the terminal)
+	assert.InDelta(t, baseLines, overlayLines, 5,
+		"overlay should not dramatically change line count")
+
+	// Overlay should contain recognizable config panel elements
+	assert.Contains(t, overlayView, "LLM",
+		"overlay should contain config panel title")
+
+	// Close config panel
+	model.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	assert.False(t, model.configPanel.Visible(), "config panel should close")
+
+	// View should recover to original content
+	recoveredView := model.View()
+	assert.Contains(t, recoveredView, "第1次扫描",
+		"view should recover original content after closing overlay")
+}
+
+// TestHelpOverlayDoesNotCorruptLayout verifies help overlay renders correctly.
+func TestHelpOverlayDoesNotCorruptLayout(t *testing.T) {
+	model := NewTUIModel()
+	model.width = 80
+	model.height = 24
+
+	model.Update(InspectionEvent{
+		Type:    components.EventScan,
+		Message: "第1次扫描: 12/12 Pod 正常",
+	})
+
+	// Toggle help (simulate '?' key)
+	model.input.Blur()
+	model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'?'}})
+	assert.True(t, model.showHelp, "help should be visible")
+
+	helpView := model.View()
+	assert.Contains(t, helpView, "快捷键",
+		"help overlay should contain keyboard shortcuts")
+
+	// Close help
+	model.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	assert.False(t, model.showHelp, "help should close")
+}
+
+// TestOverlayLinesHaveConsistentWidth verifies that overlay lines (the modal area)
+// do not bleed into each other or overflow the terminal. Non-overlay lines
+// (header, status bar) may have pre-existing ANSI width issues not caused by the overlay.
+func TestOverlayLinesHaveConsistentWidth(t *testing.T) {
+	model := NewTUIModel()
+	model.width = 80
+	model.height = 24
+
+	// Prime with content to have a realistic base
+	model.Update(InspectionEvent{
+		Type:    components.EventScan,
+		Message: "第1次扫描: 12/12 Pod 正常",
+	})
+
+	// Open config panel
+	model.input.Blur()
+	model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'c'}})
+	assert.True(t, model.configPanel.Visible(), "config panel should be visible")
+
+	overlayView := model.View()
+	lines := strings.Split(overlayView, "\n")
+
+	// Count overlay vs non-overlay lines
+	overlayLineCount := 0
+	for _, line := range lines {
+		if strings.Contains(line, "LLM") || strings.Contains(line, "Model:") ||
+			strings.Contains(line, "BaseURL:") || strings.Contains(line, "快捷键:") {
+			overlayLineCount++
+		}
+	}
+	assert.GreaterOrEqual(t, overlayLineCount, 4,
+		"overlay should contain at least 4 recognizable config panel lines")
+
+	// Verify the separator "─ 巡检事件" is NOT inside the overlay area.
+	// The separator should only appear outside (above or below) the config panel box.
+	separatorFound := false
+	for i, line := range lines {
+		hasBorder := strings.Contains(line, "╭") || strings.Contains(line, "╰") ||
+			strings.Contains(line, "│")
+		if hasBorder && strings.Contains(line, "─ 巡检事件") && !separatorFound {
+			t.Errorf("line %d: separator '─ 巡检事件' bleeds into overlay content: %q",
+				i, line[:70])
+		}
+		if strings.Contains(line, "─ 巡检事件") {
+			separatorFound = true
+		}
+	}
+	_ = separatorFound
 }

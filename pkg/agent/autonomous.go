@@ -48,12 +48,25 @@ type AutoSession struct {
 	Approved     bool
 }
 
+// AutoApprovePolicy defines how the autonomous engine handles confirmation requests.
+type AutoApprovePolicy string
+
+const (
+	// AutoApproveSafe auto-approves L0/L1, denies L2+ (default autonomous behavior).
+	AutoApproveSafe AutoApprovePolicy = "safe"
+	// AutoApproveAll auto-approves L0/L1/L2, denies L3+ (CI/CD pipeline mode).
+	AutoApproveAll AutoApprovePolicy = "all"
+	// AutoApproveStrict only auto-approves L0, requires confirmation for everything else.
+	AutoApproveStrict AutoApprovePolicy = "strict"
+)
+
 // AutonomousEngine bridges triggers (alerts, schedules) to the Agent Loop.
 type AutonomousEngine struct {
 	agentLoop       *DefaultAgentLoop
 	securityGateway SecurityGateway
 	auditManager    *audit.Manager
 	confirmer       func(ConfirmationRequest) bool
+	approvePolicy   AutoApprovePolicy
 
 	currentSession *AutoSession
 }
@@ -64,16 +77,86 @@ func NewAutonomousEngine(
 	securityGateway SecurityGateway,
 	auditMgr *audit.Manager,
 ) *AutonomousEngine {
-	return &AutonomousEngine{
-		agentLoop:       agentLoop,
+	ae := &AutonomousEngine{
+		agentLoop:     agentLoop,
 		securityGateway: securityGateway,
-		auditManager:    auditMgr,
+		auditManager:  auditMgr,
+		approvePolicy: AutoApproveSafe,
 	}
+	// Wire the built-in autonomous confirmation handler into the agent loop.
+	ae.confirmer = ae.buildConfirmationHandler()
+	return ae
 }
 
-// SetConfirmer sets the confirmation handler for L2+ operations.
+// SetApprovalPolicy sets the auto-approval policy.
+func (ae *AutonomousEngine) SetApprovalPolicy(policy AutoApprovePolicy) {
+	ae.approvePolicy = policy
+	ae.confirmer = ae.buildConfirmationHandler()
+}
+
+// Confirmer returns the current confirmation handler (built-in policy or custom).
+func (ae *AutonomousEngine) Confirmer() func(ConfirmationRequest) bool {
+	return ae.confirmer
+}
+
+// SetConfirmer sets a custom confirmation handler (overrides the built-in policy).
 func (ae *AutonomousEngine) SetConfirmer(fn func(ConfirmationRequest) bool) {
 	ae.confirmer = fn
+}
+
+// buildConfirmationHandler creates a confirmation handler based on the approval policy.
+// In autonomous mode, there is no interactive terminal — decisions are made by policy.
+func (ae *AutonomousEngine) buildConfirmationHandler() func(ConfirmationRequest) bool {
+	return func(req ConfirmationRequest) bool {
+		switch ae.approvePolicy {
+		case AutoApproveAll:
+			// CI/CD mode: auto-approve L0-L2, deny L3+
+			if req.RiskLevel == tools.RiskLevelL0 ||
+				req.RiskLevel == tools.RiskLevelL1 ||
+				req.RiskLevel == tools.RiskLevelL2 {
+				logger.Info("🤖 Auto-approved (--yes)",
+					"tool", req.ToolName,
+					"risk", req.RiskLevel,
+				)
+				return true
+			}
+			logger.Warn("🚫 Auto-denied (L3+ requires manual approval)",
+				"tool", req.ToolName,
+				"risk", req.RiskLevel,
+			)
+			return false
+		case AutoApproveStrict:
+			// Strict: auto-approve only L0
+			if req.RiskLevel == tools.RiskLevelL0 {
+				logger.Info("🤖 Auto-approved L0",
+					"tool", req.ToolName,
+					"risk", req.RiskLevel,
+				)
+				return true
+			}
+			logger.Warn("🔒 Requires confirmation (strict policy)",
+				"tool", req.ToolName,
+				"risk", req.RiskLevel,
+			)
+			return false
+		default:
+			// AutoApproveSafe (default): auto-approve L0/L1, deny L2+
+			if req.RiskLevel == tools.RiskLevelL0 ||
+				req.RiskLevel == tools.RiskLevelL1 {
+				logger.Info("🤖 Auto-approved (safe policy)",
+					"tool", req.ToolName,
+					"risk", req.RiskLevel,
+				)
+				return true
+			}
+			logger.Warn("🔒 Operation requires manual approval (L2+)",
+				"tool", req.ToolName,
+				"risk", req.RiskLevel,
+				"message", req.Message,
+			)
+			return false
+		}
+	}
 }
 
 // ===========================================================================

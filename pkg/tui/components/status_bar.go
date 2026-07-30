@@ -24,6 +24,7 @@ type StatusBar struct {
 	width         int
 	llmProvider   string
 	aiStatus      AIStatus
+	inspectInfo   string
 }
 
 // AIStatus represents the current AI agent status.
@@ -114,6 +115,9 @@ func (s *StatusBar) View() string {
 		s.formatItem("环境", s.environment, s.getEnvColor()),
 	}
 
+	if s.inspectInfo != "" {
+		leftItems = append(leftItems, s.formatItem("巡检", s.inspectInfo, s.styles.Theme.Success))
+	}
 	if s.llmProvider != "" {
 		leftItems = append(leftItems, s.formatItem("LLM", s.llmProvider, s.styles.Theme.Secondary))
 	}
@@ -212,6 +216,8 @@ func (s *StatusBar) SetSessionID(id string) {
 func (s *StatusBar) SetMode(mode string) {
 	s.mode = mode
 }
+
+func (s *StatusBar) SetInspectInfo(info string) { s.inspectInfo = info }
 
 func (s *StatusBar) SetLLMProvider(provider string) {
 	s.llmProvider = provider

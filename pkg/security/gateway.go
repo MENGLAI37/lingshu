@@ -221,6 +221,7 @@ func (g *DefaultSecurityGateway) EvaluateRisk(ctx context.Context, toolName stri
 
 	// Determine risk level based on score
 	evaluation.RiskLevel = scoreToRiskLevel(totalScore)
+	evaluation.ToolRiskLevel = tools.ToolRiskLevel(evaluation.RiskLevel)
 
 	// Run security rules
 	for _, rule := range g.getRules() {

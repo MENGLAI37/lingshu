@@ -85,6 +85,11 @@ func (al *DefaultAgentLoop) SetAuditManager(mgr *audit.Manager) {
 	al.auditMgr = mgr
 }
 
+// SetConfirmationHandler sets a custom confirmation handler on the loop config.
+func (al *DefaultAgentLoop) SetConfirmationHandler(handler func(ConfirmationRequest) bool) {
+	al.config.ConfirmationHandler = handler
+}
+
 // SetGitOpsDetector wires the GitOps detector for conflict warnings.
 func (al *DefaultAgentLoop) SetGitOpsDetector(detector *gitops.Detector) {
 	al.gitopsDetector = detector
